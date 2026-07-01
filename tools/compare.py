@@ -28,14 +28,20 @@ import signals.macd as sig_macd
 from signals.combo import all_of, majority_of
 from strategies import momentum
 from strategies.hedged import run as hedged_run, HEDGE_TICKER
+from strategies.put_hedge import run as put_run
 
 MA_FAST = 50
 MA_SLOW = 100
 
 
-def _run_variant(name, prices, signal, hedge_prices=None):
-    if hedge_prices is not None:
+def _run_variant(name, prices, signal, mode="momentum", hedge_prices=None):
+    if mode == "hedge_sh":
         result = hedged_run(prices, hedge_prices, signal)
+    elif mode == "put":
+        result = put_run(prices, signal)
+    elif mode == "cash":
+        pos    = momentum.positions(signal, no_signal_leverage=0.0)
+        result = simulate(prices, pos)
     else:
         pos    = momentum.positions(signal)
         result = simulate(prices, pos)
@@ -43,14 +49,14 @@ def _run_variant(name, prices, signal, hedge_prices=None):
     bah_prices = prices.reindex(result["equity"].index)
     bah_equity = config.INITIAL_CAPITAL * (bah_prices / bah_prices.iloc[0])
     return {
-        "name":          name,
-        "bah_m":         calc(bah_equity),
-        "bah_equity":    bah_equity,
-        "strat_m":       calc(result["equity"]),
-        "strat_equity":  result["equity"],
+        "name":           name,
+        "bah_m":          calc(bah_equity),
+        "bah_equity":     bah_equity,
+        "strat_m":        calc(result["equity"]),
+        "strat_equity":   result["equity"],
         "strat_leverage": result["leverage"],
-        "margin_calls":  result["margin_calls"],
-        "total_fees":    result["total_fees"],
+        "margin_calls":   result["margin_calls"],
+        "total_fees":     result["total_fees"],
     }
 
 
@@ -65,10 +71,10 @@ def compare(ticker: str):
 
     variants = [
         _run_variant("MA only",               prices, ma),
-        _run_variant("MA + RSI (all)",         prices, all_of([ma, rsi])),
-        _run_variant("MA + MACD (all)",        prices, all_of([ma, macd])),
-        _run_variant("MA + RSI + MACD (maj)",  prices, majority_of([ma, rsi, macd])),
-        _run_variant("MA + hedge (SH)",        prices, ma, hedge_prices=hedge_prices),
+        _run_variant("MA + RSI + MACD (maj)", prices, majority_of([ma, rsi, macd])),
+        _run_variant("MA + cash (0x)",        prices, ma,  mode="cash"),
+        _run_variant("MA + puts (5%)",        prices, ma,  mode="put"),
+        _run_variant("MA + hedge (SH)",       prices, ma,  mode="hedge_sh", hedge_prices=hedge_prices),
     ]
 
     # Print summary table

@@ -59,11 +59,11 @@ def run(prices: pd.Series, positions: pd.Series) -> dict:
             equity -= fee
             total_fees += fee
 
-        # Margin call check
+        # Margin call check (skip when in cash — no leveraged position)
         position_value = equity * target_leverage
         equity_ratio = equity / position_value if position_value > 0 else 1.0
 
-        if equity_ratio < MAINTENANCE_MARGIN and equity > 0:
+        if target_leverage > 0 and equity_ratio < MAINTENANCE_MARGIN and equity > 0:
             forced = max(1.0, min(target_leverage, 1.0 / MAINTENANCE_MARGIN))
             shares = abs(equity * target_leverage - equity * forced) / price
             fee = _trade_fee(shares)
