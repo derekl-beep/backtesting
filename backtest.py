@@ -147,6 +147,7 @@ def run_backtest(tickers):
             "bah_equity": bah_equity,
             "bah_m": bah_m,
             "strat_equity": df["equity"],
+            "strat_leverage": df["effective_leverage"],
             "strat_m": strat_m,
             "margin_calls": margin_calls,
             "total_fees": total_fees,
@@ -167,33 +168,62 @@ def run_backtest(tickers):
         print("No valid results.")
         return
 
-    # Plot
+    # Plot: 2 rows per ticker (equity curve + leverage indicator)
     n = len(all_results)
-    fig, axes = plt.subplots(n, 1, figsize=(13, 4 * n), squeeze=False)
+    fig, axes = plt.subplots(n * 2, 1, figsize=(13, 5 * n),
+                             gridspec_kw={"height_ratios": [3, 1] * n}, squeeze=False)
 
     colors = ["darkorange", "green", "crimson", "purple", "brown"]
 
     for i, r in enumerate(all_results):
-        ax = axes[i][0]
+        ax_eq  = axes[i * 2][0]
+        ax_lev = axes[i * 2 + 1][0]
         ticker = r["ticker"]
-        color = colors[i % len(colors)]
+        color  = colors[i % len(colors)]
 
-        ax.plot(r["bah_equity"].index, r["bah_equity"].values,
-                label=f"{ticker} Buy & Hold", color="steelblue", linewidth=1.5)
-        ax.plot(r["strat_equity"].index, r["strat_equity"].values,
-                label=f"{ticker} Strategy ({LEVERAGE}x)", color=color, linewidth=1.5)
+        # Equity curves
+        ax_eq.plot(r["bah_equity"].index, r["bah_equity"].values,
+                   label=f"{ticker} Buy & Hold", color="steelblue", linewidth=1.5)
+        ax_eq.plot(r["strat_equity"].index, r["strat_equity"].values,
+                   label=f"{ticker} Strategy ({LEVERAGE}x)", color=color, linewidth=1.5)
 
-        bah_m = r["bah_m"]
+        # Shade leveraged periods on equity chart
+        lev = r["strat_leverage"]
+        leveraged = lev >= LEVERAGE
+        in_block = False
+        block_start = None
+        for date, is_lev in leveraged.items():
+            if is_lev and not in_block:
+                block_start = date
+                in_block = True
+            elif not is_lev and in_block:
+                ax_eq.axvspan(block_start, date, alpha=0.08, color=color, linewidth=0)
+                in_block = False
+        if in_block:
+            ax_eq.axvspan(block_start, leveraged.index[-1], alpha=0.08, color=color, linewidth=0)
+
+        bah_m  = r["bah_m"]
         strat_m = r["strat_m"]
         summary = (
             f"B&H: CAGR {bah_m['cagr']:.1%}, Sharpe {bah_m['sharpe']:.2f}, MaxDD {bah_m['max_dd']:.1%}   |   "
             f"Strategy: CAGR {strat_m['cagr']:.1%}, Sharpe {strat_m['sharpe']:.2f}, MaxDD {strat_m['max_dd']:.1%}"
         )
-        ax.set_title(f"{ticker} — {summary}", fontsize=9)
-        ax.set_ylabel("Portfolio Value ($)")
-        ax.legend(fontsize=9)
-        ax.grid(alpha=0.3)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+        ax_eq.set_title(f"{ticker} — {summary}", fontsize=9)
+        ax_eq.set_ylabel("Portfolio Value ($)")
+        ax_eq.legend(fontsize=9)
+        ax_eq.grid(alpha=0.3)
+        ax_eq.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+
+        # Leverage indicator panel
+        ax_lev.fill_between(lev.index, lev.values, 1,
+                            step="post", alpha=0.5, color=color, label=f"Margin ON ({LEVERAGE}x)")
+        ax_lev.axhline(1.0, color="gray", linewidth=0.8, linestyle="--")
+        ax_lev.set_ylabel("Leverage")
+        ax_lev.set_ylim(0.5, LEVERAGE + 0.3)
+        ax_lev.set_yticks([1.0, LEVERAGE])
+        ax_lev.set_yticklabels(["1x\n(no margin)", f"{LEVERAGE}x\n(margin)"], fontsize=7)
+        ax_lev.legend(fontsize=8, loc="upper left")
+        ax_lev.grid(alpha=0.3)
 
     vix_label = f"VIX<{VIX_THRESHOLD} filter ON" if VIX_THRESHOLD else "VIX filter OFF"
     fig.suptitle(
