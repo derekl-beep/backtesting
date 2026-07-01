@@ -19,13 +19,13 @@ import matplotlib.pyplot as plt
 
 # --- Config ---
 DEFAULT_TICKERS = ["SPMO", "QQQ", "SPY"]
-START = "2012-01-01"
+START = "2020-01-01"
 LEVERAGE = 2.0
 MARGIN_RATE = 0.048
 INITIAL_CAPITAL = 10_000
 MAINTENANCE_MARGIN = 0.30
-MA_FAST = 50
-MA_SLOW = 200
+MA_FAST = 20
+MA_SLOW = 100
 VIX_THRESHOLD = None       # set to a number (e.g. 25) to block margin when VIX >= threshold
 
 FEE_PER_SHARE = 0.0049 + 0.005
