@@ -107,6 +107,36 @@ python -m tools.compare SPMO
 ```
 Side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
+---
+
+## Stock tools (feature/stock-backtesting)
+
+### Stock screener
+```bash
+python -m tools.stock_screen NVDA MSFT AAPL TSLA META
+```
+Runs momentum (MA50/100 2x) and mean-reversion (RSI band 1x) per ticker. Shows alpha for each strategy and recommends which to use. Correlation matrix included.
+
+Use this first to decide which strategy fits a stock. Trending large-cap tech → momentum. Macro/sector stocks → try mean-rev.
+
+### Stock backtest
+```bash
+python -m tools.stock_backtest NVDA                       # both strategies side-by-side
+python -m tools.stock_backtest NVDA MSFT AAPL
+python -m tools.stock_backtest NVDA --strategy momentum
+python -m tools.stock_backtest NVDA --strategy mean_rev
+```
+Lifetime summary + year-by-year for selected strategy. Saves chart to `charts/backtest/`.
+
+### Stock portfolio
+```bash
+python -m tools.stock_portfolio NVDA MSFT AAPL                   # equal weight
+python -m tools.stock_portfolio NVDA:0.5 MSFT:0.3 AAPL:0.2      # specified weights
+python -m tools.stock_portfolio NVDA MSFT AAPL --strategy momentum
+python -m tools.stock_portfolio NVDA MSFT AAPL --strategy mean_rev
+```
+Per-leg stats + portfolio aggregate vs B&H. All tickers share the same strategy flag.
+
 ## Configuration (`core/config.py`)
 
 | Parameter | Value | Description |
@@ -130,11 +160,13 @@ core/
   simulator.py    daily simulation engine (positions → equity)
 signals/
   ma.py           MA crossover signal
-  rsi.py          RSI threshold signal
+  rsi.py          RSI threshold signal (momentum)
+  rsi_band.py     RSI band signal (mean-reversion, stateful latch)
   macd.py         MACD crossover signal
   combo.py        all_of / any_of / majority_of combinators
 strategies/
-  momentum.py     signal → leverage positions
+  momentum.py     signal → 2x/1x leverage positions
+  mean_reversion.py  signal → 1x/cash positions
 tools/
   signal.py       live signal checker (per-ticker configs)
   backtest.py     single-ETF backtest with chart
@@ -142,6 +174,9 @@ tools/
   optimize.py     walk-forward parameter optimizer
   screen.py       ETF screener: correlation + strategy stats
   compare.py      multi-strategy comparison
+  stock_screen.py    stock screener: momentum vs mean-rev alpha per ticker
+  stock_backtest.py  per-stock backtest with strategy selection
+  stock_portfolio.py N-stock equal-weight portfolio
 ```
 
 ## Roadmap

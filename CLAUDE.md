@@ -123,6 +123,28 @@ python -m tools.optimize --final SPMO
 ```
 Only run once per year — it consumes the holdout period.
 
+**Screening stocks (which strategy fits?):**
+```bash
+python -m tools.stock_screen NVDA MSFT AAPL TSLA META
+```
+Shows momentum alpha and mean-rev alpha per ticker. Use to decide which strategy to apply.
+Trending stocks (large-cap tech) tend to favor momentum; macro/sector stocks may favor mean-rev.
+
+**Backtesting a stock:**
+```bash
+python -m tools.stock_backtest NVDA                       # both strategies side-by-side
+python -m tools.stock_backtest NVDA --strategy momentum
+python -m tools.stock_backtest NVDA --strategy mean_rev
+```
+
+**Building a stock portfolio:**
+```bash
+python -m tools.stock_portfolio NVDA MSFT AAPL                        # equal weight
+python -m tools.stock_portfolio NVDA:0.5 MSFT:0.3 AAPL:0.2           # specified weights
+python -m tools.stock_portfolio NVDA MSFT AAPL --strategy momentum
+python -m tools.stock_portfolio NVDA MSFT AAPL --strategy mean_rev
+```
+
 ## Roadmap
 
 **Mean-reversion strategy** — ETFs driven by macro/sector rotation (EWJ, EEM) show near-zero
