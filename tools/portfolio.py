@@ -227,8 +227,8 @@ def plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx):
         fontsize=11)
 
     plt.tight_layout()
-    plt.savefig("portfolio_results.png", dpi=150, bbox_inches="tight")
-    print("\nChart saved to portfolio_results.png")
+    plt.savefig("charts/portfolio_results.png", dpi=150, bbox_inches="tight")
+    print("\nChart saved to charts/portfolio_results.png")
     plt.show()
 
 

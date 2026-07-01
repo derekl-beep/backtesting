@@ -1,7 +1,7 @@
-# SPMO Backtesting — Agent Guide
+# SPMO + GLD Portfolio — Agent Guide
 
-Momentum margin strategy backtester for ETFs. Primary use case: daily signal checks,
-backtesting, parameter optimization, and portfolio analysis.
+Momentum margin strategy backtester for a two-ETF portfolio: SPMO 80% + GLD 20%.
+Primary use cases: daily signal checks, backtesting, parameter optimization, portfolio analysis.
 
 ## Environment
 
@@ -9,93 +9,75 @@ backtesting, parameter optimization, and portfolio analysis.
 source .venv/bin/activate   # always activate before running anything
 ```
 
+## Current portfolio
+
+| Ticker | Weight | Signal | OOS folds | Avg vs B&H |
+|--------|--------|--------|-----------|------------|
+| SPMO   | 80%    | MA50/100       | 3/4 | +12.5% |
+| GLD    | 20%    | MA30/50        | 4/4 | +17.7% |
+
+Signal configs live in two places — **keep in sync**:
+- `DEFAULT_PORTFOLIO` in `tools/portfolio.py` (weights + signal params)
+- `SIGNAL_CONFIGS` in `tools/signal.py` (same params, used for live checks)
+
 ## Tools
 
 ### Check today's signal
 ```bash
-python -m tools.signal SPMO
 python -m tools.signal SPMO GLD
 python -m tools.signal SPMO --capital 50000
 ```
-Returns: current MA/RSI/MACD values per component, combined signal ON/OFF, days in regime,
+Returns: MA/RSI/MACD values per component, combined signal ON/OFF, days in regime,
 distance to MA flip, position sizing, last 5 signal flips.
-
-Per-ticker signal configs live in `SIGNAL_CONFIGS` at the top of `tools/signal.py`.
-**Keep in sync with `DEFAULT_PORTFOLIO` in `tools/portfolio.py`** — if you update params in
-one, update the other.
 
 Use this to answer: "should I be in margin today?", "how close is SPMO to flipping?"
 
 ### Backtest a single ETF
 ```bash
 python -m tools.backtest SPMO
-python -m tools.backtest SPMO QQQ SPY     # multiple tickers
+python -m tools.backtest SPMO QQQ SPY
 ```
 Returns: lifetime summary (CAGR, Sharpe, max drawdown, fees) + year-by-year table.
-Saves chart to `backtest_results.png`.
+Saves chart to `charts/backtest_results.png`.
 
-Strategy: MA50/100 crossover, 2x leverage when bullish, 1x when bearish.
-
-### Portfolio backtest (multi-ETF)
+### Portfolio backtest
 ```bash
 python -m tools.portfolio
-python -m tools.portfolio SPMO:0.5:50:100 VGT:0.25:50:150 VOO:0.25:50:150
+python -m tools.portfolio SPMO:0.8:50:100 GLD:0.2:30:50
 ```
 Format: `TICKER:weight:ma_fast:ma_slow`. Weights must sum to 1.0.
 
-Returns: per-leg stats + portfolio aggregate (CAGR, Sharpe, max drawdown) + year-by-year.
-Saves chart to `portfolio_results.png`.
+Returns: per-leg stats + portfolio aggregate vs B&H 1x and B&H 2x + year-by-year.
+Saves chart to `charts/portfolio_results.png`.
 
-Default portfolio: SPMO 80% (MA50/100), GLD 20% (MA30/50).
-Each ticker has its own independently tuned MA params — see `DEFAULT_PORTFOLIO` in
-`tools/portfolio.py` for current params and their walk-forward validation notes.
+### ETF screener
+```bash
+python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM EWJ NUKZ
+```
+Returns: correlation matrix + per-ticker stats (B&H CAGR, strategy CAGR, alpha, Sharpe, MaxDD).
+Saves chart to `charts/screen_results.png`.
+
+Use to find low-correlation candidates with positive strategy alpha before adding to portfolio.
+EWJ/EEM-type macro ETFs tend to show near-zero alpha — see Roadmap.
 
 ### Walk-forward optimization
 ```bash
 python -m tools.optimize SPMO
-python -m tools.optimize VGT VOO           # tune params for new tickers
-python -m tools.optimize --final SPMO      # run held-out test (touch once)
+python -m tools.optimize --signals ma,rsi SPMO
+python -m tools.optimize --signals ma,rsi,macd SPMO
+python -m tools.optimize --final SPMO      # held-out test — touch once per year
 ```
-Returns: per-fold OOS results, consistency table, recommended MA params.
+Returns: per-fold OOS results, consistency table, recommended params.
 OOS folds: 2022–2025. Holdout: 2025–present.
 
-Run this before adding a new ETF to the portfolio. Take the param with highest
-appearances count; break ties by avg vs B&H CAGR.
-
-### ETF screener
-```bash
-python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM
-```
-Returns: per-ticker stats table (B&H CAGR, strategy CAGR, alpha, Sharpe, MaxDD) +
-correlation matrix. Saves chart to `screen_results.png` with equity curves, heatmap,
-and CAGR bar chart.
-
-Use this to pick ETFs for the portfolio — look for low correlation to SPMO + positive
-strategy alpha. MA params default to MA50/100; tune independently before adding to portfolio.
+Run before adding a new ETF. Pick param with highest fold count; break ties by avg vs B&H CAGR.
+Prefer MA-only over multi-signal unless improvement clearly survives fees.
 
 ### Strategy comparison
 ```bash
 python -m tools.compare SPMO
 ```
 Returns: side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
-
-## Validated parameters
-
-| Ticker | MA fast | MA slow | OOS folds | Avg vs B&H |
-|--------|---------|---------|-----------|------------|
-| SPMO   | 50      | 100     | 3/4       | +12.5%     |
-| GLD    | 30      | 50      | 4/4       | +17.7%     |
-
-## Configuration (`core/config.py`)
-
-| Key | Value | Notes |
-|-----|-------|-------|
-| `INITIAL_CAPITAL` | 10,000 | Starting value per backtest |
-| `LEVERAGE` | 2.0 | Multiplier when bullish |
-| `MARGIN_RATE` | 0.048 | Annual borrow rate (Futu HK USD) |
-| `MAINTENANCE_MARGIN` | 0.30 | Margin call threshold |
-| `MAX_DRAWDOWN_LIMIT` | -0.50 | Hard constraint in optimization |
-| `START` | 2020-01-01 | Historical data start |
 
 ## Architecture
 
@@ -113,27 +95,37 @@ signals/
 strategies/
   momentum.py     positions(signal, leverage) → leverage Series
 tools/
-  signal.py       live signal check
+  signal.py       live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
   backtest.py     single-ETF backtest + chart
+  portfolio.py    multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
   optimize.py     walk-forward optimizer
+  screen.py       ETF screener: correlation + strategy stats
   compare.py      multi-strategy comparison
-  portfolio.py    multi-ETF portfolio backtest + chart
+charts/           all generated .png files saved here
 ```
 
 ## Common workflows
 
-**Adding a new ETF to the portfolio:**
-1. `python -m tools.optimize <TICKER>` — find optimal MA params
-2. Update `DEFAULT_PORTFOLIO` in `tools/portfolio.py` with `(weight, ma_fast, ma_slow)`
-3. `python -m tools.portfolio` — verify results
-
-**Checking if the current signal regime changed:**
+**Daily check:**
 ```bash
-python -m tools.signal SPMO
+python -m tools.signal SPMO GLD
 ```
 
-**Running the held-out test after a full year of OOS data:**
+**Adding a new ETF to the portfolio:**
+1. `python -m tools.screen <TICKER> SPMO` — check correlation and strategy alpha
+2. `python -m tools.optimize <TICKER>` — find optimal MA params
+3. Update `DEFAULT_PORTFOLIO` in `tools/portfolio.py` and `SIGNAL_CONFIGS` in `tools/signal.py`
+4. `python -m tools.portfolio` — verify combined results
+
+**Running the annual held-out test:**
 ```bash
 python -m tools.optimize --final SPMO
 ```
-Only run this once per year — it consumes the holdout period.
+Only run once per year — it consumes the holdout period.
+
+## Roadmap
+
+**Mean-reversion strategy** — ETFs driven by macro/sector rotation (EWJ, EEM) show near-zero
+alpha with MA crossover signals. A contrarian RSI or Bollinger Band strategy could capture
+these moves but requires a separate signal framework, different position sizing (no persistent
+2x leverage), and independent walk-forward validation. Would be a new strategy module.

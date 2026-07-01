@@ -24,7 +24,7 @@ from strategies import momentum
 MA_FAST = 50
 MA_SLOW = 100
 
-DEFAULT_TICKERS = ["SPMO", "VGT", "VOO", "TLT", "GLD", "EEM", "IWM"]
+DEFAULT_TICKERS = ["SPMO", "VGT", "VOO", "TLT", "GLD", "EEM", "IWM", "EWJ", "NUKZ"]
 
 
 def _run_ticker(ticker: str) -> dict | None:
@@ -171,8 +171,8 @@ def plot(legs, corr: pd.DataFrame, common_idx):
         f"{common_idx[0].date()} – {common_idx[-1].date()}",
         fontsize=11)
 
-    plt.savefig("screen_results.png", dpi=150, bbox_inches="tight")
-    print("\nChart saved to screen_results.png")
+    plt.savefig("charts/screen_results.png", dpi=150, bbox_inches="tight")
+    print("\nChart saved to charts/screen_results.png")
     plt.show()
 
 
