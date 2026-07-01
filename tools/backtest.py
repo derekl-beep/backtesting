@@ -44,6 +44,7 @@ def backtest(ticker: str):
     strat_m = calc(result["equity"])
 
     print_comparison(ticker, bah_m, strat_m, result["margin_calls"], result["total_fees"])
+    _print_yearly(bah_equity, result["equity"], result["leverage"])
 
     return {
         "ticker":        ticker,
@@ -55,6 +56,30 @@ def backtest(ticker: str):
         "margin_calls":  result["margin_calls"],
         "total_fees":    result["total_fees"],
     }
+
+
+def _print_yearly(bah: pd.Series, strat: pd.Series, leverage: pd.Series):
+    years = sorted(set(bah.index.year))
+    print(f"\n  {'Year':<6} {'B&H':>8} {'Strategy':>10} {'vs B&H':>8} "
+          f"{'MaxDD':>8} {'Margin days':>12}")
+    print(f"  {'-'*6} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*12}")
+
+    for yr in years:
+        b = bah[bah.index.year == yr]
+        s = strat[strat.index.year == yr]
+        l = leverage[leverage.index.year == yr]
+        if len(b) < 2 or len(s) < 2:
+            continue
+
+        bah_ret  = b.iloc[-1] / b.iloc[0] - 1
+        strat_ret = s.iloc[-1] / s.iloc[0] - 1
+        roll_max = s.cummax()
+        max_dd   = ((s - roll_max) / roll_max).min()
+        margin_days = int((l >= config.LEVERAGE).sum())
+
+        diff = strat_ret - bah_ret
+        print(f"  {yr:<6} {bah_ret:>8.1%} {strat_ret:>10.1%} {diff:>+8.1%} "
+              f"{max_dd:>8.1%} {margin_days:>12}")
 
 
 def plot(results: list, ma_fast: int, ma_slow: int):

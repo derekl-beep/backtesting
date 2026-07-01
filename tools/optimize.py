@@ -305,7 +305,7 @@ if __name__ == "__main__":
         idx     = args.index("--signals")
         signals = set(args[idx + 1].split(","))
     else:
-        signals = {"ma", "rsi", "macd"}   # default: full combo
+        signals = {"ma"}   # default: MA-only (validated for SPMO)
 
     tickers = [a for a in args
                if not a.startswith("--") and a not in signals
