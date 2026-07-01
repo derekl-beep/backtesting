@@ -57,6 +57,17 @@ OOS folds: 2022–2025. Holdout: 2025–present.
 Run this before adding a new ETF to the portfolio. Take the param with highest
 appearances count; break ties by avg vs B&H CAGR.
 
+### ETF screener
+```bash
+python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM
+```
+Returns: per-ticker stats table (B&H CAGR, strategy CAGR, alpha, Sharpe, MaxDD) +
+correlation matrix. Saves chart to `screen_results.png` with equity curves, heatmap,
+and CAGR bar chart.
+
+Use this to pick ETFs for the portfolio — look for low correlation to SPMO + positive
+strategy alpha. MA params default to MA50/100; tune independently before adding to portfolio.
+
 ### Strategy comparison
 ```bash
 python -m tools.compare SPMO
