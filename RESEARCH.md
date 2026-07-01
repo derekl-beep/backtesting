@@ -28,6 +28,59 @@ Aggregate got worse on every metric. TQQQ strategy CAGR (25.2%) was even below i
 
 ---
 
+### ETF screener results — 2026-07-01
+
+Common period 2020-01-02 – 2026-07-01, MA50/100 for all (unoptimized).
+
+| Ticker | B&H CAGR | Strat CAGR | Alpha | Sharpe | MaxDD | Corr to SPMO |
+|--------|----------|------------|-------|--------|-------|--------------|
+| SPMO   | 23.6%    | 38.0%      | +14.3% | 1.07  | -37.7% | 1.00 |
+| GLD    | 15.8%    | 27.7%      | +11.9% | 0.92  | -38.9% | 0.16 |
+| QQQ    | 21.3%    | 32.8%      | +11.5% | 0.93  | -50.8% | 0.88 |
+| VGT    | 23.6%    | 32.7%      | +9.1%  | 0.87  | -53.6% | 0.88 |
+| IWM    | 11.0%    | 17.4%      | +6.4%  | 0.60  | -50.0% | 0.75 |
+| EEM    | 8.2%     | 14.2%      | +6.0%  | 0.56  | -52.6% | 0.71 |
+| EWJ    | 9.4%     | 12.0%      | +2.6%  | 0.52  | -44.0% | 0.67 |
+| TLT    | -4.2%    | -9.7%      | -5.4%  | -0.35 | -63.2% | -0.12 |
+
+### QQQ — validated but not added, 2026-07-01
+
+**Optimize result:** MA10/100, 4/4 OOS folds, avg CAGR 24.4%, avg vs B&H +6.3%.
+
+Strong alpha and fully OOS-validated. Not added because correlation to SPMO is 0.88 — it moves in lockstep. Adding QQQ concentrates the equity bet further without diversification benefit. If SPMO turns bearish, QQQ will too.
+
+**Conclusion:** Good ETF on its own, but redundant alongside SPMO. Revisit only if replacing SPMO.
+
+### IWM — screener alpha didn't survive OOS validation, 2026-07-01
+
+**Screener:** +6.4% in-sample alpha looked promising.
+
+**Optimize result:** MA50/100, 4/4 OOS folds — but avg CAGR only 5.0%, avg vs B&H **-0.2%**. Strategy barely keeps pace with IWM buy-and-hold after fees.
+
+**Lesson:** Screener alpha is in-sample (full period). Always run `optimize` before adding — the OOS folds are the real test. IWM's alpha was curve-fitted to the full history, not robust.
+
+**Conclusion:** Rejected. Near-zero OOS alpha doesn't justify the added complexity.
+
+### TLT — rejected at screener, 2026-07-01
+
+Negative alpha (-5.4%), negative Sharpe (-0.35). MA crossover destroys value on bonds — they don't trend the same way equities do. Optimization not needed.
+
+**Conclusion:** Bonds are incompatible with this strategy. Use GLD for the defensive allocation.
+
+### EWJ / EEM — rejected at screener, 2026-07-01
+
+Low alpha (+2.6% / +6.0%), low Sharpe (0.52 / 0.56), MaxDD near the -50% constraint. Macro/sector-rotation ETFs don't trend well on MA crossover signals. Optimization not run.
+
+**Conclusion:** Confirmed the Roadmap note — near-zero alpha. Would need a mean-reversion strategy, not momentum.
+
+### VGT — rejected at screener, 2026-07-01
+
++9.1% alpha but 0.98 correlation to QQQ and 0.88 to SPMO. Essentially the same bet as QQQ and SPMO. No diversification value.
+
+**Conclusion:** Not worth testing further while SPMO is in the portfolio.
+
+---
+
 ## Signal configs
 
 ### MA+RSI+MACD vs MA-only — rejected (pre-2026)
