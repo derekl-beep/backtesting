@@ -21,7 +21,7 @@ def _trade_fee(shares: float) -> float:
     return max(shares * FEE_PER_SHARE, FEE_MIN_PER_ORDER)
 
 
-def run(prices: pd.Series, positions: pd.Series) -> dict:
+def run(prices: pd.Series, positions: pd.Series, capital: float = None) -> dict:
     """
     Simulate portfolio given daily target leverage positions.
 
@@ -36,7 +36,7 @@ def run(prices: pd.Series, positions: pd.Series) -> dict:
     positions = positions.reindex(prices.index)
 
     daily_borrow_rate = MARGIN_RATE / 252
-    equity = INITIAL_CAPITAL
+    equity = capital if capital is not None else INITIAL_CAPITAL
     current_leverage = 1.0
     margin_calls = 0
     total_fees = 0.0

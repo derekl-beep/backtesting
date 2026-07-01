@@ -78,6 +78,15 @@ Sweeps parameters for the selected signal set across rolling OOS folds. Each sig
 
 Available signals: `ma`, `rsi`, `macd` (comma-separated via `--signals`)
 
+### Portfolio backtest
+```bash
+python -m tools.portfolio                                         # default: SPMO 50%, VGT 25%, VOO 25%
+python -m tools.portfolio SPMO:0.5:50:100 VGT:0.3:20:100 VOO:0.2:30:150
+```
+Runs each ETF independently with its own MA signal and weight. Portfolio equity = sum of legs.
+Each ETF's MA params should be tuned separately — run `python -m tools.optimize VGT VOO` first,
+then update the `DEFAULT_PORTFOLIO` dict in `tools/portfolio.py`.
+
 ### Strategy comparison
 ```bash
 python -m tools.compare SPMO
