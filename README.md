@@ -147,3 +147,5 @@ tools/
 ## Roadmap
 
 - **Mean-reversion strategy**: ETFs driven by macro/sector rotations (e.g. EWJ, EEM) don't trend well — MA crossover has near-zero alpha on them. A contrarian RSI or Bollinger Band strategy could capture these moves, but requires a separate signal framework, different position sizing, and independent validation. Would be a new strategy module alongside the existing momentum one.
+
+- **Individual stock backtesting**: Extend the system to individual stocks within the same workspace, reusing `core/` and `signals/` infrastructure. Requires new modules: large-universe screener (`tools/stock_screen.py`), per-stock backtest with strategy selection (`tools/stock_backtest.py`), N-stock portfolio with dynamic allocation (`tools/stock_portfolio.py`), and additional strategy types (`strategies/mean_reversion.py`). The ETF workflow stays untouched; stocks share infrastructure but have separate entry points.

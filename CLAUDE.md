@@ -129,3 +129,9 @@ Only run once per year — it consumes the holdout period.
 alpha with MA crossover signals. A contrarian RSI or Bollinger Band strategy could capture
 these moves but requires a separate signal framework, different position sizing (no persistent
 2x leverage), and independent walk-forward validation. Would be a new strategy module.
+
+**Individual stock backtesting** — Reuse `core/` and `signals/` infrastructure; add stock-specific
+tools alongside existing ETF tools. New modules: `tools/stock_screen.py` (large-universe screener,
+hundreds of tickers), `tools/stock_backtest.py` (per-stock with strategy selection),
+`tools/stock_portfolio.py` (N-stock dynamic allocation), `strategies/mean_reversion.py`.
+ETF workflow stays untouched.
