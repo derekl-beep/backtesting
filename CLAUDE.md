@@ -41,7 +41,7 @@ Format: `TICKER:weight:ma_fast:ma_slow`. Weights must sum to 1.0.
 Returns: per-leg stats + portfolio aggregate (CAGR, Sharpe, max drawdown) + year-by-year.
 Saves chart to `portfolio_results.png`.
 
-Default portfolio: SPMO 50% (MA50/100), VGT 25% (MA50/150), VOO 25% (MA50/150).
+Default portfolio: SPMO 80% (MA50/100), GLD 20% (MA30/50).
 Each ticker has its own independently tuned MA params — see `DEFAULT_PORTFOLIO` in
 `tools/portfolio.py` for current params and their walk-forward validation notes.
 
@@ -79,8 +79,7 @@ Returns: side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 | Ticker | MA fast | MA slow | OOS folds | Avg vs B&H |
 |--------|---------|---------|-----------|------------|
 | SPMO   | 50      | 100     | 3/4       | +12.5%     |
-| VGT    | 50      | 150     | 3/4       | +13.3%     |
-| VOO    | 50      | 150     | 3/4       | +7.6%      |
+| GLD    | 30      | 50      | 4/4       | +17.7%     |
 
 ## Configuration (`core/config.py`)
 
