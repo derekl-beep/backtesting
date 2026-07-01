@@ -11,6 +11,8 @@ Usage:
 """
 
 import sys
+import matplotlib
+matplotlib.use("Agg")
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -231,7 +233,236 @@ def plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx):
     path = f"charts/portfolio/portfolio_results_{_date.today()}.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     print(f"\nChart saved to {path}")
-    plt.show()
+    plt.close()
+
+
+def backtest_dynamic(portfolio: dict, driver: str = "SPMO") -> None:
+    """
+    Compare fixed-weight portfolio vs dynamic allocation:
+    bull weights (from portfolio config) when driver signal is ON,
+    bear weight configs (GLD-heavy) when driver signal is OFF.
+
+    Tests three bear configs: 60/40, 40/60, 20/80 SPMO/GLD.
+    """
+    print(f"Fetching legs...")
+    legs = {}
+    for ticker, cfg in portfolio.items():
+        leg = _run_leg(ticker, {**cfg, "weight": 1.0})
+        if leg:
+            legs[ticker] = leg
+
+    if not legs:
+        return
+
+    # Align to common index
+    common_idx = list(legs.values())[0]["equity"].index
+    for leg in legs.values():
+        common_idx = common_idx.intersection(leg["equity"].index)
+
+    # Normalised daily returns per leg (strategy returns, weight-independent)
+    rets = {t: leg["equity"].reindex(common_idx).pct_change().fillna(0)
+            for t, leg in legs.items()}
+
+    # Driver signal on common index
+    driver_cfg = portfolio.get(driver, list(portfolio.values())[0])
+    driver_prices = fetch(driver)
+    driver_sig = sig_ma.signal(driver_prices, driver_cfg["ma_fast"], driver_cfg["ma_slow"])
+    driver_sig = driver_sig.reindex(common_idx).ffill().fillna(0)
+
+    # Bull weights from portfolio config
+    bull_w = {t: portfolio[t]["weight"] for t in legs}
+
+    # Bear configs to test
+    tickers = list(legs.keys())   # assumes 2-asset portfolio: SPMO, GLD
+    if len(tickers) == 2:
+        t0, t1 = tickers
+        bear_configs = {
+            f"bear→ {t0} 60% / {t1} 40%": {t0: 0.60, t1: 0.40},
+            f"bear→ {t0} 40% / {t1} 60%": {t0: 0.40, t1: 0.60},
+            f"bear→ {t0} 20% / {t1} 80%": {t0: 0.20, t1: 0.80},
+        }
+    else:
+        print("Dynamic mode supports 2-asset portfolios only.")
+        return
+
+    def _portfolio_equity(weight_fn):
+        daily = sum(weight_fn(t) * rets[t] for t in legs)
+        return config.INITIAL_CAPITAL * (1 + daily).cumprod()
+
+    static_eq = _portfolio_equity(lambda t: bull_w[t])
+
+    # B&H baseline
+    bah_eq = sum(
+        bull_w[t] * config.INITIAL_CAPITAL
+        * (legs[t]["bah"].reindex(common_idx) / legs[t]["bah"].reindex(common_idx).iloc[0])
+        for t in legs
+    )
+
+    print(f"\n{'='*72}")
+    print(f"  Dynamic allocation — driver: {driver}  "
+          f"(bull={'/'.join(f'{t} {bull_w[t]:.0%}' for t in legs)})")
+    print(f"{'='*72}")
+    print(f"  {'Config':<36} {'CAGR':>7} {'Sharpe':>7} {'MaxDD':>7} {'vs static':>10}")
+    print(f"  {'-'*36} {'-'*7} {'-'*7} {'-'*7} {'-'*10}")
+
+    static_m = calc(static_eq)
+    print(f"  {'Static (current)':<36} {static_m['cagr']:>7.1%} "
+          f"{static_m['sharpe']:>7.2f} {static_m['max_dd']:>7.1%} {'—':>10}")
+
+    dynamic_equities = {}
+    for label, bear_w in bear_configs.items():
+        def _dyn_weight(t, bw=bear_w):
+            bull_days  = driver_sig * bull_w[t]
+            bear_days  = (1 - driver_sig) * bw.get(t, 0)
+            return bull_days + bear_days
+
+        daily = sum(_dyn_weight(t) * rets[t] for t in legs)
+        eq = config.INITIAL_CAPITAL * (1 + daily).cumprod()
+        m  = calc(eq)
+        vs = m["cagr"] - static_m["cagr"]
+        print(f"  {label:<36} {m['cagr']:>7.1%} {m['sharpe']:>7.2f} "
+              f"{m['max_dd']:>7.1%} {vs:>+10.1%}")
+        dynamic_equities[label] = eq
+
+    # Year-by-year for best dynamic config
+    best_label = max(dynamic_equities, key=lambda k: calc(dynamic_equities[k])["sharpe"])
+    best_eq    = dynamic_equities[best_label]
+    print(f"\n  Year-by-year: Static vs best dynamic ({best_label.strip()})")
+    print(f"  {'Year':<6} {'B&H':>8} {'Static':>8} {'Dynamic':>9} {'Δ CAGR':>8}")
+    print(f"  {'-'*6} {'-'*8} {'-'*8} {'-'*9} {'-'*8}")
+    for yr in sorted(set(common_idx.year)):
+        mask = common_idx.year == yr
+        b = bah_eq[mask];  s = static_eq[mask];  d = best_eq[mask]
+        if len(b) < 2: continue
+        br = b.iloc[-1]/b.iloc[0]-1; sr = s.iloc[-1]/s.iloc[0]-1; dr = d.iloc[-1]/d.iloc[0]-1
+        print(f"  {yr:<6} {br:>8.1%} {sr:>8.1%} {dr:>9.1%} {dr-sr:>+8.1%}")
+
+    # Plot
+    fig, ax = plt.subplots(figsize=(13, 6))
+    ax.plot(bah_eq.index, bah_eq.values, label="B&H 1x", color="steelblue",
+            linewidth=1.2, linestyle="--")
+    ax.plot(static_eq.index, static_eq.values, label="Static 80/20", color="black",
+            linewidth=1.8)
+    colors = ["darkorange", "green", "crimson"]
+    for (label, eq), color in zip(dynamic_equities.items(), colors):
+        ax.plot(eq.index, eq.values, label=label, color=color, linewidth=1.2, alpha=0.85)
+    ax.set_title(f"Dynamic GLD allocation — driver: {driver}", fontsize=10)
+    ax.set_ylabel("Portfolio Value ($)")
+    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    plt.tight_layout()
+    from datetime import date as _date
+    path = f"charts/portfolio/portfolio_dynamic_{_date.today()}.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {path}")
+    plt.close()
+
+
+def backtest_dynamic_oos(portfolio: dict, driver: str = "SPMO") -> None:
+    """
+    Walk-forward OOS validation of dynamic GLD allocation.
+    Tests each year (2022–present) independently — no training phase since
+    there are no free parameters; the rule is fixed (shift to GLD when bearish).
+    Shows whether dynamic beats static consistently across folds.
+    """
+    BEAR_CONFIGS = {
+        "60/40": {list(portfolio.keys())[0]: 0.60, list(portfolio.keys())[1]: 0.40},
+        "40/60": {list(portfolio.keys())[0]: 0.40, list(portfolio.keys())[1]: 0.60},
+        "20/80": {list(portfolio.keys())[0]: 0.20, list(portfolio.keys())[1]: 0.80},
+    }
+    FIRST_TEST_YEAR = 2022
+
+    print("Fetching legs...")
+    legs = {}
+    for ticker, cfg in portfolio.items():
+        leg = _run_leg(ticker, {**cfg, "weight": 1.0})
+        if leg:
+            legs[ticker] = leg
+
+    if len(legs) != 2:
+        print("Dynamic OOS supports 2-asset portfolios only.")
+        return
+
+    t0, t1 = list(legs.keys())
+    bull_w = {t0: portfolio[t0]["weight"], t1: portfolio[t1]["weight"]}
+
+    # Full aligned index
+    common_idx = legs[t0]["equity"].index.intersection(legs[t1]["equity"].index)
+    rets = {t: legs[t]["equity"].reindex(common_idx).pct_change().fillna(0)
+            for t in legs}
+
+    # Driver signal
+    driver_cfg = portfolio[driver]
+    driver_sig = sig_ma.signal(fetch(driver), driver_cfg["ma_fast"], driver_cfg["ma_slow"])
+    driver_sig = driver_sig.reindex(common_idx).ffill().fillna(0)
+
+    def _equity(weight_fn):
+        daily = sum(weight_fn(t) * rets[t] for t in legs)
+        return config.INITIAL_CAPITAL * (1 + daily).cumprod()
+
+    static_eq = _equity(lambda t: bull_w[t])
+
+    def _dynamic_eq(bear_w):
+        bull_days = driver_sig
+        bear_days = 1 - driver_sig
+        wt = {t: bull_days * bull_w[t] + bear_days * bear_w.get(t, 0) for t in legs}
+        return _equity(lambda t: wt[t])
+
+    dynamic_eqs = {label: _dynamic_eq(bw) for label, bw in BEAR_CONFIGS.items()}
+
+    current_year = pd.Timestamp.now().year
+    fold_years   = range(FIRST_TEST_YEAR, current_year + 1)
+
+    print(f"\n{'='*78}")
+    print(f"  Dynamic allocation OOS validation  (driver: {driver}, "
+          f"bull={t0} {bull_w[t0]:.0%}/{t1} {bull_w[t1]:.0%})")
+    print(f"{'='*78}")
+
+    col_w = 10
+    headers = ["Static"] + [f"Dyn {k}" for k in BEAR_CONFIGS]
+    print(f"  {'Fold':<8}" + "".join(f"{h:>{col_w}}" for h in headers))
+    print(f"  {'-'*8}" + f"{'-'*col_w}" * len(headers))
+
+    wins = {label: 0 for label in BEAR_CONFIGS}
+    n_folds = 0
+
+    for yr in fold_years:
+        mask = common_idx.year == yr
+        if mask.sum() < 10:
+            continue
+        n_folds += 1
+
+        def _yr_ret(eq):
+            s = eq[mask]
+            return s.iloc[-1] / s.iloc[0] - 1
+
+        static_ret = _yr_ret(static_eq)
+        row = f"  {yr:<8}{static_ret:>{col_w}.1%}"
+        for label, deq in dynamic_eqs.items():
+            dr = _yr_ret(deq)
+            marker = " ✓" if dr > static_ret else "  "
+            row += f"{dr:>{col_w-2}.1%}{marker}"
+            if dr > static_ret:
+                wins[label] += 1
+        print(row)
+
+    print(f"\n  Win rate vs static ({n_folds} folds):")
+    for label, w in wins.items():
+        bear_w = BEAR_CONFIGS[label]
+        print(f"    bear {label} ({t0} {bear_w[t0]:.0%}/{t1} {bear_w[t1]:.0%}): "
+              f"{w}/{n_folds} folds  ({w/n_folds:.0%})")
+
+    # Full-period summary
+    print(f"\n  Full-period summary (2020–present):")
+    print(f"  {'Config':<24} {'CAGR':>7} {'Sharpe':>7} {'MaxDD':>7} {'vs static':>10}")
+    print(f"  {'-'*24} {'-'*7} {'-'*7} {'-'*7} {'-'*10}")
+    sm = calc(static_eq)
+    print(f"  {'Static':<24} {sm['cagr']:>7.1%} {sm['sharpe']:>7.2f} {sm['max_dd']:>7.1%} {'—':>10}")
+    for label, deq in dynamic_eqs.items():
+        dm = calc(deq)
+        vs = dm["cagr"] - sm["cagr"]
+        print(f"  {f'Dynamic bear {label}':<24} {dm['cagr']:>7.1%} {dm['sharpe']:>7.2f} "
+              f"{dm['max_dd']:>7.1%} {vs:>+10.1%}")
 
 
 def _parse_args(args: list[str]) -> dict:
@@ -253,5 +484,16 @@ def _parse_args(args: list[str]) -> dict:
 
 
 if __name__ == "__main__":
-    portfolio = _parse_args(sys.argv[1:]) if sys.argv[1:] else DEFAULT_PORTFOLIO
-    backtest(portfolio)
+    args = sys.argv[1:]
+    dynamic = "--dynamic" in args
+    oos     = "--oos" in args
+    args = [a for a in args if a not in ("--dynamic", "--oos")]
+
+    portfolio = _parse_args(args) if args else DEFAULT_PORTFOLIO
+
+    if dynamic and oos:
+        backtest_dynamic_oos(portfolio)
+    elif dynamic:
+        backtest_dynamic(portfolio)
+    else:
+        backtest(portfolio)
