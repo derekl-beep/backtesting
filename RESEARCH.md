@@ -140,3 +140,23 @@ Extended backtest history from 2020 to 2016 (SPMO launch), giving 8 OOS folds (2
 Multi-signal combos were tested for SPMO. Result: 5x more trades, no net improvement in OOS CAGR after fees. MA-only is simpler and survives costs better.
 
 **Conclusion:** Default to MA-only. Only revisit multi-signal if a ticker shows clear single-signal weakness across multiple OOS folds.
+
+### Sensitivity heatmap baseline — 2026-07-01
+
+First run of `python -m tools.sensitivity` (new tool: full MA grid evaluated directly
+on all 8 OOS folds, per ticker).
+
+**SPMO (current MA10/200):** on a plateau — every grid cell passes 8/8 folds with
+positive alpha — but in the weakest column (+1.5% avg OOS alpha vs +9–10% for the
+MA*/100 column). This is the per-ticker view of the known joint-optimizer tradeoff:
+MA10/200 trades per-ticker alpha for fewer trades/fees and better portfolio Sharpe
+(see "Extended history + alpha filter" entry). Not a red flag, but if the portfolio
+context changes (e.g. GLD removed), revisit the /100 column.
+
+**GLD (current MA20/100):** mid-plateau, +7.3% avg OOS alpha, all 8 neighbors
+positive (+3.1% to +11.7%). Robust.
+
+**Rolling 1y Sharpe gap (strategy − B&H):** SPMO full-history −0.17, last year −0.37;
+GLD −0.17 / −0.08. Negative full-history gaps are expected (the strategy wins on
+drawdown/total-return compounding, not per-period Sharpe); watch for the SPMO gap
+widening further.

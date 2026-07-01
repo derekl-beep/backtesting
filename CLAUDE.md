@@ -36,9 +36,16 @@ strategy behavior and must be deliberate.
 ```bash
 python -m tools.signal SPMO GLD
 python -m tools.signal SPMO --capital 50000
+python -m tools.signal SPMO GLD --alert              # + machine-readable JSON
+python -m tools.signal SPMO GLD --alert --threshold 3
 ```
 Returns: MA/RSI/MACD values per component, combined signal ON/OFF, days in regime,
 distance to MA flip, position sizing, last 5 signal flips.
+
+`--alert` appends an `ALERT_STATUS_JSON` block with per-ticker `flipped_today`,
+`entered_band_today` (first day inside the near-flip threshold — fires once, not
+daily), `days_in_band`, and yesterday's distance. Used by the daily cloud routine
+so alerts stay stateless and deduplicated.
 
 Use this to answer: "should I be in margin today?", "how close is SPMO to flipping?"
 
@@ -109,13 +116,25 @@ python -m tools.compare SPMO
 ```
 Returns: side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
+### Parameter robustness check
+```bash
+python -m tools.sensitivity              # all portfolio tickers
+python -m tools.sensitivity SPMO
+```
+Returns: OOS alpha heatmap over the full MA grid (current params outlined — plateau
+= robust, isolated peak = curve-fit), neighbor verdict, and rolling 1y Sharpe vs B&H
+(decay warning). Charts to `charts/sensitivity/`. Run quarterly or before trusting
+newly tuned params.
+
 ## Architecture
 
 ```
 core/
   config.py             shared constants (leverage, fees, margin, dates)
   portfolio_config.py   live portfolio: weights + signal params (single source of truth)
-  data.py           yfinance fetch (returns pd.Series of daily close)
+  data.py           yfinance fetch with local cache in data/ (adjusted close;
+                    cache valid until the next NYSE close — refetches full history,
+                    never tail-appends, because adjusted close rescales retroactively)
   metrics.py        calc(equity) → {cagr, sharpe, max_dd, total}
   simulator.py      run(prices, positions, capital) → {equity, leverage, margin_calls, fees}
 signals/
@@ -139,6 +158,7 @@ tools/  (ETF — master branch)
   tune.py                end-to-end pipeline: optimize → compare → apply
   screen.py              ETF screener: correlation + strategy stats
   compare.py             multi-strategy comparison
+  sensitivity.py         param robustness: OOS heatmap + rolling Sharpe decay
 tools/  (stocks — feature/stock-backtesting branch)
   stock_rank.py     daily ranking of watchlist by momentum strength (start here)
   stock_signal.py   live signal + position sizing per stock (STOCK_CONFIGS at top)

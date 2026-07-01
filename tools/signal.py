@@ -8,8 +8,11 @@ Usage:
   python -m tools.signal SPMO
   python -m tools.signal SPMO GLD
   python -m tools.signal SPMO --capital 50000
+  python -m tools.signal SPMO GLD --alert            # append machine-readable JSON
+  python -m tools.signal SPMO GLD --alert --threshold 3
 """
 
+import json
 import sys
 from datetime import date
 
@@ -71,9 +74,52 @@ def _find_flips(combined_signal, prices):
     return events
 
 
-def check(ticker: str, capital: float):
-    cfg    = SIGNAL_CONFIGS.get(ticker, DEFAULT_CONFIG)
-    prices = fetch(ticker, start=START)
+def alert_status(ticker: str, prices: pd.Series, cfg: dict,
+                 threshold_pct: float = 2.0) -> dict:
+    """
+    Machine-readable alert state for the daily watcher.
+
+    entered_band_today is True only on the first day the MA gap moves inside
+    the near-flip band, so a stateless caller can alert once instead of every
+    day the gap hovers there.
+    """
+    combined  = _build_signal(prices, cfg)
+    ma_fast_s = prices.rolling(cfg["ma_fast"]).mean()
+    ma_slow_s = prices.rolling(cfg["ma_slow"]).mean()
+    dist_pct  = ((ma_fast_s - ma_slow_s).abs() / ma_slow_s * 100).reindex(combined.index)
+
+    in_band = dist_pct < threshold_pct
+    days_in_band = 0
+    for val in reversed(in_band.values):
+        if val:
+            days_in_band += 1
+        else:
+            break
+
+    days_in_regime = 0
+    for val in reversed(combined.values[:-1]):
+        if val == combined.iloc[-1]:
+            days_in_regime += 1
+        else:
+            break
+
+    return {
+        "ticker":             ticker,
+        "date":               str(combined.index[-1].date()),
+        "signal":             "ON" if combined.iloc[-1] == 1 else "OFF",
+        "days_in_regime":     days_in_regime,
+        "dist_to_flip_pct":   round(float(dist_pct.iloc[-1]), 2),
+        "dist_yesterday_pct": round(float(dist_pct.iloc[-2]), 2),
+        "flipped_today":      bool(combined.iloc[-1] != combined.iloc[-2]),
+        "entered_band_today": bool(in_band.iloc[-1] and not in_band.iloc[-2]),
+        "days_in_band":       days_in_band,
+    }
+
+
+def check(ticker: str, capital: float, prices: pd.Series = None):
+    cfg = SIGNAL_CONFIGS.get(ticker, DEFAULT_CONFIG)
+    if prices is None:
+        prices = fetch(ticker, start=START)
     if len(prices) < cfg["ma_slow"] + 10:
         print(f"{ticker}: not enough data.")
         return
@@ -183,6 +229,25 @@ if __name__ == "__main__":
         capital = float(args[idx + 1])
         args    = [a for i, a in enumerate(args) if i != idx and i != idx + 1]
 
-    tickers = args if args else ["SPMO"]
+    threshold = 2.0
+    if "--threshold" in args:
+        idx       = args.index("--threshold")
+        threshold = float(args[idx + 1])
+        args      = [a for i, a in enumerate(args) if i != idx and i != idx + 1]
+
+    alert = "--alert" in args
+    args  = [a for a in args if a != "--alert"]
+
+    tickers  = args if args else ["SPMO"]
+    statuses = []
     for t in tickers:
-        check(t.upper(), capital)
+        t      = t.upper()
+        cfg    = SIGNAL_CONFIGS.get(t, DEFAULT_CONFIG)
+        prices = fetch(t, start=START)
+        check(t, capital, prices=prices)
+        if alert and len(prices) >= cfg["ma_slow"] + 10:
+            statuses.append(alert_status(t, prices, cfg, threshold_pct=threshold))
+
+    if alert:
+        print("ALERT_STATUS_JSON")
+        print(json.dumps(statuses, indent=2))
