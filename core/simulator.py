@@ -49,7 +49,7 @@ def run(prices: pd.Series, positions: pd.Series, capital: float = None) -> dict:
 
         if prev_price is not None:
             daily_ret = (price - prev_price) / prev_price
-            borrowed = current_leverage - 1.0
+            borrowed = max(0.0, current_leverage - 1.0)
             equity *= 1 + current_leverage * daily_ret - borrowed * daily_borrow_rate
 
         # Trade fee on leverage change
