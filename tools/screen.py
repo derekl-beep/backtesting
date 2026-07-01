@@ -171,8 +171,10 @@ def plot(legs, corr: pd.DataFrame, common_idx):
         f"{common_idx[0].date()} – {common_idx[-1].date()}",
         fontsize=11)
 
-    plt.savefig("charts/screen_results.png", dpi=150, bbox_inches="tight")
-    print("\nChart saved to charts/screen_results.png")
+    from datetime import date as _date
+    path = f"charts/screen/screen_results_{_date.today()}.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {path}")
     plt.show()
 
 

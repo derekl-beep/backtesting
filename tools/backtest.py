@@ -137,8 +137,10 @@ def plot(results: list, ma_fast: int, ma_slow: int):
         f"{config.MARGIN_RATE:.1%} borrow", fontsize=11, y=1.01)
 
     plt.tight_layout()
-    plt.savefig("charts/backtest_results.png", dpi=150, bbox_inches="tight")
-    print("\nChart saved to charts/backtest_results.png")
+    from datetime import date as _date
+    path = f"charts/backtest/backtest_results_{_date.today()}.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {path}")
     plt.show()
 
 

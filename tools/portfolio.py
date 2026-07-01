@@ -227,8 +227,10 @@ def plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx):
         fontsize=11)
 
     plt.tight_layout()
-    plt.savefig("charts/portfolio_results.png", dpi=150, bbox_inches="tight")
-    print("\nChart saved to charts/portfolio_results.png")
+    from datetime import date as _date
+    path = f"charts/portfolio/portfolio_results_{_date.today()}.png"
+    plt.savefig(path, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {path}")
     plt.show()
 
 
