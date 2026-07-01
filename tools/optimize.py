@@ -33,10 +33,11 @@ import signals.macd as sig_macd
 from signals.combo import majority_of
 from strategies import momentum
 
-TRAIN_START     = "2020-01-01"
-FIRST_TEST_YEAR = 2022
+TRAIN_START     = config.START
+FIRST_TEST_YEAR = 2018
 HOLDOUT_YEAR    = 2025
 TOP_N           = 5
+MIN_AVG_ALPHA   = 0.05   # param must beat B&H by at least 5% avg across OOS folds
 
 # Parameter grids per signal
 MA_FAST_WINDOWS = [10, 20, 30, 50]
@@ -185,7 +186,20 @@ def _print_oos_table(oos_df, appearances, n_folds, signals):
           f"{'Avg MaxDD':>10} {'Avg vs B&H':>12}")
     print(f"  {'-'*w} {'-'*6} {'-'*10} {'-'*10} {'-'*12}")
 
-    ranked = sorted(appearances.items(), key=lambda x: x[1], reverse=True)
+    def _avg_vs_bah(key):
+        params = {k: v for k, v in key}
+        sub = oos_df[oos_df["params"].apply(lambda p: p == params)]
+        return (sub["oos_cagr"] - sub["bah_cagr"]).mean() if not sub.empty else -999
+
+    ranked_all = sorted(appearances.items(),
+                        key=lambda x: (x[1], _avg_vs_bah(x[0])), reverse=True)
+
+    # Filter: must meet minimum avg alpha threshold
+    ranked = [(key, count) for key, count in ranked_all
+              if _avg_vs_bah(key) >= MIN_AVG_ALPHA]
+    excluded = [(key, count) for key, count in ranked_all
+                if _avg_vs_bah(key) < MIN_AVG_ALPHA]
+
     for key, count in ranked[:TOP_N]:
         params = {k: v for k, v in key}
         label  = _param_label(params, signals)
@@ -196,6 +210,12 @@ def _print_oos_table(oos_df, appearances, n_folds, signals):
               f"{sub['oos_cagr'].mean():>9.1%}  "
               f"{sub['oos_max_dd'].mean():>9.1%}  "
               f"{(sub['oos_cagr'] - sub['bah_cagr']).mean():>+11.1%}")
+
+    if excluded:
+        excl_labels = ", ".join(_param_label({k: v for k, v in key}, signals)
+                                for key, _ in excluded[:3])
+        print(f"\n  (excluded — avg alpha < {MIN_AVG_ALPHA:.0%}: {excl_labels}"
+              + (f" + {len(excluded)-3} more" if len(excluded) > 3 else "") + ")")
 
     return ranked
 
@@ -255,12 +275,22 @@ def run_final_test(tickers, signals):
         print(f"\n  {ticker} — Stage 1: selecting params on folds "
               f"{FIRST_TEST_YEAR}–{HOLDOUT_YEAR - 1}")
 
-        appearances, _ = _sweep_folds(prices, opt_folds, combos, signals)
+        appearances, opt_records = _sweep_folds(prices, opt_folds, combos, signals)
         if not appearances:
             print("  No params passed constraints.")
             continue
 
-        ranked      = sorted(appearances.items(), key=lambda x: x[1], reverse=True)
+        opt_df = pd.DataFrame(opt_records)
+
+        def _opt_avg_vs_bah(key):
+            params = {k: v for k, v in key}
+            sub = opt_df[opt_df["params"].apply(lambda p: p == params)]
+            return (sub["oos_cagr"] - sub["bah_cagr"]).mean() if not sub.empty else -999
+
+        ranked_all  = sorted(appearances.items(),
+                             key=lambda x: (x[1], _opt_avg_vs_bah(x[0])), reverse=True)
+        ranked      = [(k, c) for k, c in ranked_all
+                       if _opt_avg_vs_bah(k) >= MIN_AVG_ALPHA] or ranked_all
         best_key    = ranked[0][0]
         best_params = {k: v for k, v in best_key}
         print(f"  Selected : {_param_label(best_params, signals)}  "

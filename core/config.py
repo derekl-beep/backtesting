@@ -1,5 +1,5 @@
 DEFAULT_TICKERS    = ["SPMO", "QQQ", "SPY"]
-START              = "2020-01-01"
+START              = "2016-01-01"
 LEVERAGE           = 2.0
 MARGIN_RATE        = 0.048       # Futu HK annual USD borrow rate
 INITIAL_CAPITAL    = 10_000

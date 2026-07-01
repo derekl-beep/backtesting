@@ -116,6 +116,25 @@ Win rate: 3/5 folds (60%) across all configs.
 
 ## Signal configs
 
+### Extended history + alpha filter — params unchanged, 2026-07-01
+
+Extended backtest history from 2020 to 2016 (SPMO launch), giving 8 OOS folds (2018–2025) vs 4 previously. Also fixed a tie-breaking bug in the optimizer (was picking by insertion order; now breaks ties by avg vs B&H). Added `MIN_AVG_ALPHA = 5%` filter to exclude params that pass constraints but don't meaningfully beat B&H.
+
+**New optimizer recommendations:**
+- SPMO: MA10/100 (7/8 folds, avg +10.4% vs B&H) — previously MA50/100
+- GLD: MA20/100 (8/8 folds, avg +7.3% vs B&H) — previously MA30/50
+
+**Portfolio test result (MA10/100 / MA20/100):**
+| | Old params | New params |
+|---|---|---|
+| CAGR | 36.5% | 27.8% |
+| Sharpe | 1.14 | 1.00 |
+| Fees | ~$102 | $254 |
+
+**Why new params underperformed:** MA10 fast window whipsaws 2.5x more, generating extra trades and fees that eat the per-fold OOS alpha. The optimizer evaluates tickers in isolation and doesn't account for compounding trading costs at the portfolio level.
+
+**Conclusion:** Reverted to MA50/100 / MA30/50. The fast-MA alpha doesn't survive at the portfolio level. This is a known limitation of per-ticker optimization — fee drag from a fast signal on a leveraged position compounds badly. The `MIN_AVG_ALPHA` filter and tie-breaking fix remain in the optimizer for future use.
+
 ### MA+RSI+MACD vs MA-only — rejected (pre-2026)
 
 Multi-signal combos were tested for SPMO. Result: 5x more trades, no net improvement in OOS CAGR after fees. MA-only is simpler and survives costs better.
