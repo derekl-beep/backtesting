@@ -24,9 +24,8 @@ from strategies import momentum
 # Per-ticker config: (weight, ma_fast, ma_slow)
 # Each ticker's MA params validated independently via walk-forward (2022-2025 OOS folds).
 DEFAULT_PORTFOLIO = {
-    "SPMO": (0.50, 50, 100),   # 3/4 folds, avg +12.5% vs B&H
-    "VGT":  (0.25, 50, 150),   # 3/4 folds, avg +13.3% vs B&H
-    "VOO":  (0.25, 50, 150),   # 3/4 folds, avg  +7.6% vs B&H
+    "SPMO": (0.80, 50, 100),   # 3/4 folds, avg +12.5% vs B&H
+    "GLD":  (0.20, 30,  50),   # 4/4 folds, avg +17.7% vs B&H
 }
 
 
