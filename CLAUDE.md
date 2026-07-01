@@ -14,10 +14,15 @@ source .venv/bin/activate   # always activate before running anything
 ### Check today's signal
 ```bash
 python -m tools.signal SPMO
+python -m tools.signal SPMO GLD
 python -m tools.signal SPMO --capital 50000
 ```
-Returns: current MA values, signal ON/OFF, days in current regime, % move to flip signal,
-last 5 signal flips. With `--capital`: position size in shares and dollars.
+Returns: current MA/RSI/MACD values per component, combined signal ON/OFF, days in regime,
+distance to MA flip, position sizing, last 5 signal flips.
+
+Per-ticker signal configs live in `SIGNAL_CONFIGS` at the top of `tools/signal.py`.
+**Keep in sync with `DEFAULT_PORTFOLIO` in `tools/portfolio.py`** — if you update params in
+one, update the other.
 
 Use this to answer: "should I be in margin today?", "how close is SPMO to flipping?"
 
