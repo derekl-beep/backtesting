@@ -24,7 +24,7 @@ LEVERAGE = 2.0
 MARGIN_RATE = 0.048
 INITIAL_CAPITAL = 10_000
 MAINTENANCE_MARGIN = 0.30
-MA_FAST = 20
+MA_FAST = 50
 MA_SLOW = 100
 VIX_THRESHOLD = None       # set to a number (e.g. 25) to block margin when VIX >= threshold
 
