@@ -2,7 +2,7 @@
 Portfolio tuning pipeline — single command to find and apply optimal params.
 
 Runs portfolio-level walk-forward optimization, compares recommended params
-vs current, and optionally writes the changes to portfolio.py and signal.py.
+vs current, and optionally writes the changes to core/portfolio_config.py.
 
 Usage:
   python -m tools.tune               # optimize and compare, no changes
@@ -18,8 +18,6 @@ matplotlib.use("Agg")
 
 from tools.portfolio import DEFAULT_PORTFOLIO
 from tools.portfolio_optimize import optimize, _combo_label
-import tools.portfolio as portfolio_mod
-import tools.signal as signal_mod
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -102,45 +100,27 @@ def _print_comparison(current_m: dict, recommended_m: dict,
 
 
 def _apply_changes(recommended_portfolio: dict, tickers: list):
-    """Write new params into portfolio.py and signal.py in-place."""
-    import ast, pathlib
+    """Write new params into core/portfolio_config.py in-place."""
+    import pathlib
 
-    portfolio_path = pathlib.Path(__file__).parent / "portfolio.py"
-    signal_path    = pathlib.Path(__file__).parent / "signal.py"
+    config_path = pathlib.Path(__file__).parent.parent / "core" / "portfolio_config.py"
 
-    # ── portfolio.py ──
-    text = portfolio_path.read_text()
+    text = config_path.read_text()
     for ticker in tickers:
         cfg  = recommended_portfolio[ticker]
         fast, slow = cfg["ma_fast"], cfg["ma_slow"]
-        # Replace ma_fast and ma_slow values for this ticker in DEFAULT_PORTFOLIO block
         # Match pattern: "TICKER": dict(...ma_fast=XX, ma_slow=YY...)
         pattern = (
             r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+')
         replacement = r'\g<1>' + str(fast) + r'\g<2>' + str(slow)
         new_text = re.sub(pattern, replacement, text)
         if new_text == text:
-            print(f"  WARNING: could not update {ticker} in portfolio.py — update manually.")
+            print(f"  WARNING: could not update {ticker} in core/portfolio_config.py — update manually.")
         else:
             text = new_text
-    portfolio_path.write_text(text)
+    config_path.write_text(text)
 
-    # ── signal.py ──
-    text = signal_path.read_text()
-    for ticker in tickers:
-        cfg  = recommended_portfolio[ticker]
-        fast, slow = cfg["ma_fast"], cfg["ma_slow"]
-        pattern = (
-            r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+')
-        replacement = r'\g<1>' + str(fast) + r'\g<2>' + str(slow)
-        new_text = re.sub(pattern, replacement, text)
-        if new_text == text:
-            print(f"  WARNING: could not update {ticker} in signal.py — update manually.")
-        else:
-            text = new_text
-    signal_path.write_text(text)
-
-    print(f"\n  Applied changes to tools/portfolio.py and tools/signal.py.")
+    print(f"\n  Applied changes to core/portfolio_config.py.")
     print(f"  Run `python -m tools.portfolio` to verify the full backtest.")
 
 

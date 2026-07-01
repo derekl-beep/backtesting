@@ -16,9 +16,19 @@ Primary use cases: daily signal checks, backtesting, parameter optimization, por
 | SPMO   | 80%    | MA10/200       | 5/8 | +13.0% |
 | GLD    | 20%    | MA20/100       | 5/8 | +13.0% |
 
-Signal configs live in two places — **keep in sync**:
-- `DEFAULT_PORTFOLIO` in `tools/portfolio.py` (weights + signal params)
-- `SIGNAL_CONFIGS` in `tools/signal.py` (same params, used for live checks)
+Weights + signal params live in **one place**: `PORTFOLIO` in `core/portfolio_config.py`.
+Both `tools/portfolio.py` (backtests) and `tools/signal.py` (live checks) import from it,
+and `tools.tune --apply` rewrites it.
+
+## Tests
+
+```bash
+.venv/bin/pytest
+```
+Run after any change to `core/`, `signals/`, or `strategies/`. The suite pins exact
+signal flips, simulator fee/borrow math, metrics, and an end-to-end golden backtest —
+real money follows these numbers, so a failing golden test means the change altered
+strategy behavior and must be deliberate.
 
 ## Tools
 
@@ -103,7 +113,8 @@ Returns: side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
 ```
 core/
-  config.py         shared constants
+  config.py             shared constants (leverage, fees, margin, dates)
+  portfolio_config.py   live portfolio: weights + signal params (single source of truth)
   data.py           yfinance fetch (returns pd.Series of daily close)
   metrics.py        calc(equity) → {cagr, sharpe, max_dd, total}
   simulator.py      run(prices, positions, capital) → {equity, leverage, margin_calls, fees}
@@ -120,9 +131,9 @@ strategies/
   momentum_3t.py    2x / 1x / 0x  (three-tier, for stocks only)
   mean_reversion.py 1x in-trade / 0x cash  (RSI band entry/exit)
 tools/  (ETF — master branch)
-  signal.py              live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
+  signal.py              live signal check (params from core/portfolio_config.py)
   backtest.py            single-ETF backtest + chart
-  portfolio.py           multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
+  portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
   tune.py                end-to-end pipeline: optimize → compare → apply
@@ -135,6 +146,7 @@ tools/  (stocks — feature/stock-backtesting branch)
   stock_backtest.py per-stock backtest with strategy selection
   stock_portfolio.py N-stock weighted portfolio backtest
   stock_optimize.py walk-forward MA optimizer (--tier 2 default, --tier 3 for 3-tier)
+tests/              pytest suite: signals, simulator math, metrics, golden backtest, config invariants
 charts/             all generated .png files saved here
 ```
 
@@ -148,7 +160,7 @@ python -m tools.signal SPMO GLD
 **Adding a new ETF to the portfolio:**
 1. `python -m tools.screen <TICKER> SPMO` — check correlation and strategy alpha
 2. `python -m tools.optimize <TICKER>` — find optimal MA params
-3. Update `DEFAULT_PORTFOLIO` in `tools/portfolio.py` and `SIGNAL_CONFIGS` in `tools/signal.py`
+3. Update `PORTFOLIO` in `core/portfolio_config.py` (weights must sum to 1.0)
 4. `python -m tools.portfolio` — verify combined results
 
 **Running the annual held-out test:**

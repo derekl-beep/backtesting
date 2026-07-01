@@ -22,14 +22,13 @@ from signals import rsi as sig_rsi
 from signals import macd as sig_macd
 from signals.combo import majority_of
 
-# Per-ticker signal config — keep in sync with DEFAULT_PORTFOLIO in tools/portfolio.py
-SIGNAL_CONFIGS = {
-    "SPMO": dict(ma_fast=10, ma_slow=200),
-    "GLD":  dict(ma_fast=20, ma_slow=100),
-}
-DEFAULT_CONFIG  = dict(ma_fast=50, ma_slow=100)
-MACD_PARAMS     = (12, 26, 9)
-FLIP_HISTORY    = 5
+from core.portfolio_config import (
+    PORTFOLIO as SIGNAL_CONFIGS,
+    DEFAULT_SIGNAL as DEFAULT_CONFIG,
+    MACD_PARAMS,
+)
+
+FLIP_HISTORY = 5
 
 
 def _build_signal(prices, cfg):

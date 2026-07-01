@@ -9,53 +9,66 @@ Each ETF runs its own independent MA crossover signal with 2x leverage when bull
 
 | ETF | Weight | Signal | Validation |
 |-----|--------|--------|------------|
-| SPMO | 80% | MA50/100 | 3/4 OOS folds, avg +12.5% vs B&H |
-| GLD  | 20% | MA30/50  | 4/4 OOS folds, avg +17.7% vs B&H |
+| SPMO | 80% | MA10/200 | 5/8 OOS folds, avg +13.0% vs B&H |
+| GLD  | 20% | MA20/100 | 5/8 OOS folds, avg +13.0% vs B&H |
 
 - **Bullish**: hold at **2x leverage** using margin
 - **Bearish**: hold at **1x** (no margin)
 - Margin borrow cost deducted daily on the borrowed portion
 - Margin call simulated: if equity ratio falls below 30%, position is force-reduced
 
-GLD was selected via ETF screener (`tools/screen.py`) for its low correlation to SPMO (0.18) and strong strategy alpha. MA-only signals were chosen over MA+RSI+MACD combos — multi-signal increased fees 5x with no net benefit after costs.
+GLD was selected via ETF screener (`tools/screen.py`) for its low correlation to SPMO (0.16) and strong strategy alpha. MA-only signals were chosen over MA+RSI+MACD combos — multi-signal increased fees 5x with no net benefit after costs.
 
 ### Validation
 
-Walk-forward optimization (expanding window, 2020 anchor):
-- OOS folds: 2022–2025 — used to select MA params per ticker
-- Final held-out test: 2025–present (touched once) — passed for SPMO
+Walk-forward optimization (expanding window, 2016 anchor), tuned jointly at the
+portfolio level via `tools/tune.py` — per-ticker optima proved fragile once
+portfolio-level fee drag was accounted for (see `RESEARCH.md`):
+- OOS folds: 2018–2025 — used to select MA params
+- Final held-out test: 2025–present (touched once per year)
 
-## Portfolio results (as of 2026-07, starting capital $10,000)
+## Portfolio results (2016–2026-07, starting capital $10,000)
 
 | | B&H 1x | B&H 2x | Strategy |
 |---|---|---|---|
-| Total return | 272.7% | 639.4% | **650.5%** |
-| CAGR | 22.5% | 36.2% | **36.5%** |
-| Sharpe ratio | 1.13 | 0.99 | **1.14** |
-| Max drawdown | -25.6% | -46.8% | **-33.4%** |
+| Total return | 515.7% | 1453.5% | **1289.4%** |
+| CAGR | 19.0% | 30.0% | **28.6%** |
+| Sharpe ratio | 1.08 | 0.92 | **0.99** |
+| Max drawdown | -26.4% | -49.3% | **-35.8%** |
 | Margin calls | — | — | 0 |
-| Total fees | — | — | $102 |
+| Total fees | — | — | $138 |
 
 ### Year-by-year
 
 | Year | B&H 1x | B&H 2x | Strategy | vs 1x | vs 2x | MaxDD |
 |---|---|---|---|---|---|---|
-| 2020 | +26.4% | +35.5% | +48.7% | +22.3% | +13.3% | -25.4% |
-| 2021 | +18.1% | +29.6% | +32.2% | +14.1% | +2.6% | -18.7% |
-| 2022 | -8.7% | -24.4% | -11.6% | -2.9% | +12.8% | -29.8% |
-| 2023 | +18.1% | +30.9% | +32.3% | +14.2% | +1.5% | -12.4% |
-| 2024 | +43.8% | +91.8% | +91.7% | +47.9% | -0.1% | -23.1% |
-| 2025 | +31.2% | +55.7% | +25.2% | -6.0% | -30.4% | -33.4% |
-| 2026 | +25.1% | +48.3% | +42.3% | +17.2% | -6.0% | -16.4% |
+| 2016 | +7.0% | +7.7% | +8.7% | +1.7% | +1.0% | -7.9% |
+| 2017 | +25.2% | +48.5% | +46.2% | +21.0% | -2.3% | -4.9% |
+| 2018 | -1.6% | -11.4% | -1.3% | +0.3% | +10.1% | -27.7% |
+| 2019 | +24.3% | +45.2% | +31.5% | +7.2% | -13.8% | -9.6% |
+| 2020 | +26.5% | +35.1% | +44.9% | +18.4% | +9.8% | -35.8% |
+| 2021 | +19.0% | +33.1% | +35.4% | +16.3% | +2.2% | -19.4% |
+| 2022 | -9.0% | -25.3% | -20.7% | -11.8% | +4.5% | -32.7% |
+| 2023 | +18.3% | +31.7% | +27.1% | +8.7% | -4.6% | -12.5% |
+| 2024 | +44.3% | +94.0% | +94.8% | +50.5% | +0.9% | -23.5% |
+| 2025 | +30.4% | +52.1% | +32.1% | +1.7% | -20.0% | -34.3% |
+| 2026 | +24.5% | +48.6% | +37.9% | +13.3% | -10.7% | -19.6% |
 
-The key insight from B&H 2x: the strategy matches naive always-on-leverage in total return but with significantly lower max drawdown (-33.4% vs -46.8%) and higher Sharpe — the signal timing earns its keep in risk reduction, not raw returns.
+The key insight from B&H 2x: the strategy gives up a little total return vs naive always-on leverage but with significantly lower max drawdown (-35.8% vs -49.3%) and higher Sharpe — the signal timing earns its keep in risk reduction, not raw returns.
 
 ## Setup
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install yfinance pandas matplotlib scipy
+pip install yfinance pandas matplotlib scipy pytest
+```
+
+Run the test suite (signal flips, simulator fee/borrow math, metrics, golden
+end-to-end backtest, config invariants):
+
+```bash
+pytest
 ```
 
 ## Tools
@@ -82,8 +95,9 @@ python -m tools.portfolio SPMO:0.8:50:100 GLD:0.2:30:50
 Format: `TICKER:weight:ma_fast:ma_slow`. Runs each ETF independently, combines equity.
 Shows B&H 1x, B&H 2x, and Strategy side-by-side. Saves chart to `portfolio_results.png`.
 
-Signal configs (with optional RSI/MACD) live in `DEFAULT_PORTFOLIO` in `tools/portfolio.py`.
-**Keep in sync with `SIGNAL_CONFIGS` in `tools/signal.py`.**
+Weights + signal params (with optional RSI/MACD) live in `PORTFOLIO` in
+`core/portfolio_config.py` — the single source of truth for backtests, live
+signal checks, and `tools.tune --apply`.
 
 ### ETF screener
 ```bash
@@ -92,14 +106,23 @@ python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM EWJ NUKZ
 Correlation matrix + per-ticker strategy stats (B&H CAGR, strategy CAGR, alpha, Sharpe, MaxDD).
 Use to find low-correlation candidates before adding to portfolio. Saves chart to `screen_results.png`.
 
-### Walk-forward optimization
+### Portfolio tuning (joint optimization)
+```bash
+python -m tools.tune              # optimize all tickers jointly, show comparison
+python -m tools.tune --apply      # same, but write changes if Sharpe improves
+```
+Portfolio-level walk-forward optimization across joint MA combos; `--apply` is
+gated on Sharpe improvement and rewrites `core/portfolio_config.py`. Use this
+(not per-ticker optimize) when retuning the whole portfolio.
+
+### Walk-forward optimization (per ticker)
 ```bash
 python -m tools.optimize SPMO
 python -m tools.optimize --signals ma,rsi SPMO
 python -m tools.optimize --signals ma,rsi,macd SPMO
 python -m tools.optimize --final SPMO
 ```
-Sweeps params across OOS folds (2022–2025). Run for each new ticker before adding to portfolio.
+Sweeps params across OOS folds (2018–2025). Run for each new ticker before adding to portfolio.
 
 ### Strategy comparison
 ```bash
@@ -172,13 +195,14 @@ Per-leg stats + portfolio aggregate vs B&H. Default strategy: momentum_cash.
 | `FEE_PER_SHARE` | $0.0099 | Commission $0.0049 + platform $0.005 (Futu HK) |
 | `FEE_MIN_PER_ORDER` | $1.99 | Min $0.99 commission + $1.00 platform (Futu HK) |
 | `MAX_DRAWDOWN_LIMIT` | -50% | Hard constraint for optimization |
-| `START` | 2020-01-01 | Historical data start date |
+| `START` | 2016-01-01 | Historical data start date |
 
 ## Project structure
 
 ```
 core/
-  config.py         shared constants
+  config.py             shared constants
+  portfolio_config.py   live portfolio: weights + signal params (single source of truth)
   data.py           yfinance data fetching
   metrics.py        CAGR, Sharpe, max drawdown
   simulator.py      daily simulation engine (positions → equity)
@@ -195,12 +219,14 @@ strategies/
   momentum_3t.py    2x / 1x / 0x  (three-tier)
   mean_reversion.py 1x in-trade / 0x cash
 tools/  (ETF — master branch)
-  signal.py         live signal checker (SIGNAL_CONFIGS at top)
-  backtest.py       single-ETF backtest with chart
-  portfolio.py      multi-ETF portfolio backtest with chart (DEFAULT_PORTFOLIO at top)
-  optimize.py       walk-forward parameter optimizer
-  screen.py         ETF screener: correlation + strategy stats
-  compare.py        multi-strategy comparison
+  signal.py              live signal checker (params from core/portfolio_config.py)
+  backtest.py            single-ETF backtest with chart
+  portfolio.py           multi-ETF portfolio backtest with chart
+  optimize.py            per-ticker walk-forward optimizer
+  portfolio_optimize.py  joint portfolio-level optimizer
+  tune.py                end-to-end pipeline: optimize → compare → apply
+  screen.py              ETF screener: correlation + strategy stats
+  compare.py             multi-strategy comparison
 tools/  (stocks — feature/stock-backtesting branch)
   stock_rank.py     daily ranking by momentum strength
   stock_signal.py   live signal + position sizing (STOCK_CONFIGS at top)
@@ -208,6 +234,7 @@ tools/  (stocks — feature/stock-backtesting branch)
   stock_backtest.py per-stock backtest with strategy selection
   stock_portfolio.py N-stock weighted portfolio backtest
   stock_optimize.py walk-forward MA optimizer (--tier 2 or --tier 3)
+tests/              pytest suite: signals, simulator math, metrics, golden backtest, config invariants
 ```
 
 ## Roadmap
