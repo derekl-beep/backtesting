@@ -14,6 +14,8 @@ Usage:
 import sys
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from core import config
@@ -21,33 +23,43 @@ from core.data import fetch
 from core.metrics import calc
 from core.simulator import run as simulate
 from signals import ma as sig_ma
+from signals import ma_3tier as sig_ma3t
 from signals import rsi_band as sig_rsi_band
 from strategies import momentum as strat_momentum
+from strategies import momentum_3t as strat_3t
 from strategies import mean_reversion as strat_mr
 
 MOM_FAST  = 50
 MOM_SLOW  = 100
+MOM_SLOW3 = 200
 MR_PERIOD = 14
 MR_OS     = 30
 MR_OB     = 70
 
 
-def _run_leg(ticker: str, strategy: str) -> dict | None:
+def _run_leg(ticker: str, strategy: str, **kwargs) -> dict | None:
     try:
         prices = fetch(ticker)
     except Exception:
         print(f"{ticker}: failed to fetch.")
         return None
-    if len(prices) < MOM_SLOW + 10:
+    min_len = kwargs.get("slow", MOM_SLOW3) if strategy == "momentum_3t" else MOM_SLOW
+    if len(prices) < min_len + 10:
         print(f"{ticker}: not enough data.")
         return None
 
     if strategy == "momentum":
         sig = sig_ma.signal(prices, MOM_FAST, MOM_SLOW)
         pos = strat_momentum.positions(sig)
-    else:  # mean_rev
+    elif strategy == "mean_rev":
         sig = sig_rsi_band.signal(prices, MR_PERIOD, MR_OS, MR_OB)
         pos = strat_mr.positions(sig)
+    else:  # momentum_3t — caller passes fast/mid/slow via kwargs
+        fast = kwargs.get("fast", 20)
+        mid  = kwargs.get("mid",  75)
+        slow = kwargs.get("slow", MOM_SLOW3)
+        sig  = sig_ma3t.signal(prices, fast, mid, slow)
+        pos  = strat_3t.positions(sig)
 
     result  = simulate(prices, pos)
     eq      = result["equity"]
@@ -199,14 +211,14 @@ def plot(legs, weights, port_equity, bah_equity, strategy):
     path = f"charts/portfolio/stock_portfolio_{_date.today()}.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     print(f"\nChart saved to {path}")
-    plt.show()
+    plt.close()
 
 
-def portfolio(specs: list[tuple[str, float]], strategy: str) -> None:
+def portfolio(specs: list[tuple[str, float]], strategy: str, **kwargs) -> None:
     print(f"Fetching {len(specs)} tickers...")
     legs, valid_weights = [], []
     for ticker, weight in specs:
-        leg = _run_leg(ticker, strategy)
+        leg = _run_leg(ticker, strategy, **kwargs)
         if leg:
             legs.append(leg)
             valid_weights.append(weight)
@@ -228,31 +240,40 @@ def portfolio(specs: list[tuple[str, float]], strategy: str) -> None:
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
+    args     = sys.argv[1:]
     strategy = "momentum"
+    kwargs   = {}
 
     if "--strategy" in args:
         idx = args.index("--strategy")
         strategy = args[idx + 1]
         args = [a for j, a in enumerate(args) if j != idx and j != idx + 1]
 
+    if "--ma" in args:
+        idx   = args.index("--ma")
+        parts = args[idx + 1].split(":")
+        kwargs["fast"] = int(parts[0])
+        kwargs["mid"]  = int(parts[1])
+        kwargs["slow"] = int(parts[2]) if len(parts) > 2 else 200
+        args = [a for j, a in enumerate(args) if j != idx and j != idx + 1]
+
     if not args:
         print("Usage: python -m tools.stock_portfolio TICKER[:weight] ... "
-              "[--strategy momentum|mean_rev]")
+              "[--strategy momentum|momentum_3t|mean_rev] [--ma fast:mid]")
         sys.exit(1)
 
     specs = []
     for arg in args:
-        parts = arg.upper().split(":")
+        parts  = arg.upper().split(":")
         ticker = parts[0]
         weight = float(parts[1]) if len(parts) > 1 else None
         specs.append((ticker, weight))
 
-    n = len(specs)
+    n     = len(specs)
     specs = [(t, w if w is not None else 1.0 / n) for t, w in specs]
     total = sum(w for _, w in specs)
     specs = [(t, w / total) for t, w in specs]
 
     print(f"Portfolio: {', '.join(f'{t}({w:.1%})' for t, w in specs)}")
-    print(f"Strategy: {strategy}")
-    portfolio(specs, strategy)
+    print(f"Strategy: {strategy}" + (f"  |  MA: {kwargs}" if kwargs else ""))
+    portfolio(specs, strategy, **kwargs)

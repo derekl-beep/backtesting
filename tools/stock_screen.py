@@ -10,6 +10,8 @@ Usage:
 import sys
 import numpy as np
 import pandas as pd
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 
@@ -199,7 +201,7 @@ def plot(legs, corr, common_idx):
     path = f"charts/screen/stock_screen_{_date.today()}.png"
     plt.savefig(path, dpi=150, bbox_inches="tight")
     print(f"\nChart saved to {path}")
-    plt.show()
+    plt.close()
 
 
 def screen(tickers: list[str]) -> None:
