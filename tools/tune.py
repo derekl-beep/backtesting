@@ -117,7 +117,7 @@ def _apply_changes(recommended_portfolio: dict, tickers: list):
         # Match pattern: "TICKER": dict(...ma_fast=XX, ma_slow=YY...)
         pattern = (
             r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+')
-        replacement = r'\g<1>' + str(fast) + r'\2' + str(slow)
+        replacement = r'\g<1>' + str(fast) + r'\g<2>' + str(slow)
         new_text = re.sub(pattern, replacement, text)
         if new_text == text:
             print(f"  WARNING: could not update {ticker} in portfolio.py — update manually.")
@@ -132,7 +132,7 @@ def _apply_changes(recommended_portfolio: dict, tickers: list):
         fast, slow = cfg["ma_fast"], cfg["ma_slow"]
         pattern = (
             r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+')
-        replacement = r'\g<1>' + str(fast) + r'\2' + str(slow)
+        replacement = r'\g<1>' + str(fast) + r'\g<2>' + str(slow)
         new_text = re.sub(pattern, replacement, text)
         if new_text == text:
             print(f"  WARNING: could not update {ticker} in signal.py — update manually.")

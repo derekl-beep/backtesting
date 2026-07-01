@@ -29,8 +29,8 @@ from strategies import momentum
 # Per-ticker config: weight + signal params validated via walk-forward (2022-2025 OOS folds).
 DEFAULT_PORTFOLIO = {
     #          weight  ma_fast  ma_slow
-    "SPMO": dict(weight=0.80, ma_fast=50, ma_slow=100),   # 7/8 folds, avg +10.4% vs B&H (MA10/100 OOS-best but too noisy; MA50/100 lower fees)
-    "GLD":  dict(weight=0.20, ma_fast=30, ma_slow=50),    # 8/8 folds, avg +17.7% vs B&H
+    "SPMO": dict(weight=0.80, ma_fast=10, ma_slow=200),   # 5/8 folds, Sharpe +0.09 vs old; joint portfolio optimization 2026-07-01
+    "GLD":  dict(weight=0.20, ma_fast=20, ma_slow=100),   # joint portfolio optimization 2026-07-01
 }
 
 MACD_PARAMS = (12, 26, 9)

@@ -24,8 +24,8 @@ from signals.combo import majority_of
 
 # Per-ticker signal config — keep in sync with DEFAULT_PORTFOLIO in tools/portfolio.py
 SIGNAL_CONFIGS = {
-    "SPMO": dict(ma_fast=50, ma_slow=100),
-    "GLD":  dict(ma_fast=30, ma_slow=50),
+    "SPMO": dict(ma_fast=10, ma_slow=200),
+    "GLD":  dict(ma_fast=20, ma_slow=100),
 }
 DEFAULT_CONFIG  = dict(ma_fast=50, ma_slow=100)
 MACD_PARAMS     = (12, 26, 9)

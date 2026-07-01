@@ -13,8 +13,8 @@ Primary use cases: daily signal checks, backtesting, parameter optimization, por
 
 | Ticker | Weight | Signal | OOS folds | Avg vs B&H |
 |--------|--------|--------|-----------|------------|
-| SPMO   | 80%    | MA50/100       | 3/4 | +12.5% |
-| GLD    | 20%    | MA30/50        | 4/4 | +17.7% |
+| SPMO   | 80%    | MA10/200       | 5/8 | +13.0% |
+| GLD    | 20%    | MA20/100       | 5/8 | +13.0% |
 
 Signal configs live in two places — **keep in sync**:
 - `DEFAULT_PORTFOLIO` in `tools/portfolio.py` (weights + signal params)
