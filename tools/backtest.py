@@ -1,5 +1,8 @@
 """
-Run a backtest for one or more tickers using the momentum margin strategy.
+Run a backtest for one or more tickers.
+
+Strategy: MA30/50 + RSI>55 + MACD(12/26/9) majority vote.
+Validated via walk-forward (2022-2024) + final holdout (2025-present).
 
 Usage:
   python -m tools.backtest                  # default tickers
@@ -13,18 +16,33 @@ from core import config
 from core.data import fetch
 from core.metrics import calc, print_comparison
 from core.simulator import run as simulate
-from signals import ma
+import signals.ma   as sig_ma
+import signals.rsi  as sig_rsi
+import signals.macd as sig_macd
+from signals.combo import majority_of
 from strategies import momentum
 
+MA_FAST       = 30
+MA_SLOW       = 50
+RSI_THRESHOLD = 55
+MACD_PARAMS   = (12, 26, 9)
 
-def backtest(ticker: str, ma_fast: int = 50, ma_slow: int = 100):
+
+def _signal(prices):
+    ma   = sig_ma.signal(prices, MA_FAST, MA_SLOW)
+    rsi  = sig_rsi.signal(prices, threshold=RSI_THRESHOLD)
+    macd = sig_macd.signal(prices, *MACD_PARAMS)
+    return majority_of([ma, rsi, macd])
+
+
+def backtest(ticker: str):
     prices = fetch(ticker)
-    if len(prices) < ma_slow + 10:
+    if len(prices) < MA_SLOW + 30:
         print(f"{ticker}: not enough data.")
         return None
 
-    sig = ma.signal(prices, ma_fast, ma_slow)
-    pos = momentum.positions(sig)
+    sig    = _signal(prices)
+    pos    = momentum.positions(sig)
     result = simulate(prices, pos)
 
     bah_prices = prices.reindex(result["equity"].index)
@@ -98,8 +116,8 @@ def plot(results: list, ma_fast: int, ma_slow: int):
         ax_lev.grid(alpha=0.3)
 
     fig.suptitle(
-        f"Momentum Margin Strategy: MA {ma_fast}/{ma_slow}, {config.LEVERAGE}x, "
-        f"{config.MARGIN_RATE:.1%} borrow", fontsize=11, y=1.01)
+        f"Strategy: MA{ma_fast}/{ma_slow} + RSI>{RSI_THRESHOLD} + MACD majority, "
+        f"{config.LEVERAGE}x, {config.MARGIN_RATE:.1%} borrow", fontsize=11, y=1.01)
 
     plt.tight_layout()
     plt.savefig("backtest_results.png", dpi=150, bbox_inches="tight")
@@ -112,6 +130,6 @@ if __name__ == "__main__":
     ma_fast, ma_slow = 50, 100
 
     print(f"Fetching data for: {', '.join(tickers)}...")
-    results = [r for t in tickers if (r := backtest(t, ma_fast, ma_slow)) is not None]
+    results = [r for t in tickers if (r := backtest(t)) is not None]
     if results:
-        plot(results, ma_fast, ma_slow)
+        plot(results, MA_FAST, MA_SLOW)
