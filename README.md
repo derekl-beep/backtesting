@@ -107,6 +107,60 @@ python -m tools.compare SPMO
 ```
 Side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
+---
+
+## Stock tools (feature/stock-backtesting branch)
+
+Individual stocks use **momentum_cash** by default: 2x when MA_fast > MA_slow, 0x cash when bearish. Unlike the ETF strategy (1x hold when bearish), stocks exit completely.
+
+### Daily rank
+```bash
+python -m tools.stock_rank                        # default 17-stock watchlist
+python -m tools.stock_rank NVDA MSFT AAPL TSLA
+```
+Ranks by composite strength score (regime days + MA gap + RSI). Start here to find today's entry candidates.
+
+### Live signal + sizing
+```bash
+python -m tools.stock_signal NVDA MSFT
+python -m tools.stock_signal NVDA --capital 50000
+```
+Per-ticker: current signal (bull 2x / cash 0x), MA values, days in regime, distance to flip, position sizing, last 5 flips. Per-ticker strategy configs live in `STOCK_CONFIGS` at top of `tools/stock_signal.py`.
+
+### Stock screener
+```bash
+python -m tools.stock_screen NVDA MSFT AAPL TSLA META
+```
+Runs momentum-cash (MA50/100 2x/0x) and mean-reversion (RSI band 1x/0x) side-by-side. Shows alpha for each strategy and recommends which to use. Correlation matrix included.
+
+### Stock backtest
+```bash
+python -m tools.stock_backtest NVDA                       # momentum_cash vs mean_rev
+python -m tools.stock_backtest NVDA MSFT AAPL
+python -m tools.stock_backtest NVDA --strategy momentum_cash
+python -m tools.stock_backtest NVDA --strategy mean_rev
+python -m tools.stock_backtest NVDA --strategy compare    # momentum_cash vs ETF-style
+```
+Lifetime summary + year-by-year. Saves chart to `charts/backtest/`.
+
+### Walk-forward optimization
+```bash
+python -m tools.stock_optimize NVDA                  # 2-tier: sweeps fast/slow pairs
+python -m tools.stock_optimize --tier 3 NVDA         # 3-tier: sweeps fast/mid, slow=200
+python -m tools.stock_optimize NVDA MSFT AAPL
+```
+Same expanding-window OOS structure as the ETF optimizer. Default (--tier 2) optimizes momentum_cash fast/slow MA params.
+
+### Stock portfolio
+```bash
+python -m tools.stock_portfolio NVDA MSFT AAPL                   # equal weight
+python -m tools.stock_portfolio NVDA:0.5 MSFT:0.3 AAPL:0.2      # specified weights
+python -m tools.stock_portfolio NVDA MSFT AAPL --strategy mean_rev
+```
+Per-leg stats + portfolio aggregate vs B&H. Default strategy: momentum_cash.
+
+---
+
 ## Configuration (`core/config.py`)
 
 | Parameter | Value | Description |
@@ -124,28 +178,38 @@ Side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
 ```
 core/
-  config.py       shared constants
-  data.py         yfinance data fetching
-  metrics.py      CAGR, Sharpe, max drawdown
-  simulator.py    daily simulation engine (positions → equity)
+  config.py         shared constants
+  data.py           yfinance data fetching
+  metrics.py        CAGR, Sharpe, max drawdown
+  simulator.py      daily simulation engine (positions → equity)
 signals/
-  ma.py           MA crossover signal
-  rsi.py          RSI threshold signal
-  macd.py         MACD crossover signal
-  combo.py        all_of / any_of / majority_of combinators
+  ma.py             MA crossover signal → 0/1
+  ma_3tier.py       three-level MA signal → 0/1/2
+  rsi.py            RSI threshold signal (momentum) → 0/1
+  rsi_band.py       RSI band signal (mean-reversion, stateful latch) → 0/1
+  macd.py           MACD crossover signal → 0/1
+  combo.py          all_of / any_of / majority_of combinators
 strategies/
-  momentum.py     signal → leverage positions
-tools/
-  signal.py       live signal checker (per-ticker configs)
-  backtest.py     single-ETF backtest with chart
-  portfolio.py    multi-ETF portfolio backtest with chart
-  optimize.py     walk-forward parameter optimizer
-  screen.py       ETF screener: correlation + strategy stats
-  compare.py      multi-strategy comparison
+  momentum.py       2x bull / 1x bear  (ETF-style)
+  momentum_cash.py  2x bull / 0x cash  (stock default)
+  momentum_3t.py    2x / 1x / 0x  (three-tier)
+  mean_reversion.py 1x in-trade / 0x cash
+tools/  (ETF — master branch)
+  signal.py         live signal checker (SIGNAL_CONFIGS at top)
+  backtest.py       single-ETF backtest with chart
+  portfolio.py      multi-ETF portfolio backtest with chart (DEFAULT_PORTFOLIO at top)
+  optimize.py       walk-forward parameter optimizer
+  screen.py         ETF screener: correlation + strategy stats
+  compare.py        multi-strategy comparison
+tools/  (stocks — feature/stock-backtesting branch)
+  stock_rank.py     daily ranking by momentum strength
+  stock_signal.py   live signal + position sizing (STOCK_CONFIGS at top)
+  stock_screen.py   momentum-cash vs mean-rev alpha per ticker
+  stock_backtest.py per-stock backtest with strategy selection
+  stock_portfolio.py N-stock weighted portfolio backtest
+  stock_optimize.py walk-forward MA optimizer (--tier 2 or --tier 3)
 ```
 
 ## Roadmap
 
-- **Mean-reversion strategy**: ETFs driven by macro/sector rotations (e.g. EWJ, EEM) don't trend well — MA crossover has near-zero alpha on them. A contrarian RSI or Bollinger Band strategy could capture these moves, but requires a separate signal framework, different position sizing, and independent validation. Would be a new strategy module alongside the existing momentum one.
-
-- **Individual stock backtesting**: Extend the system to individual stocks within the same workspace, reusing `core/` and `signals/` infrastructure. Requires new modules: large-universe screener (`tools/stock_screen.py`), per-stock backtest with strategy selection (`tools/stock_backtest.py`), N-stock portfolio with dynamic allocation (`tools/stock_portfolio.py`), and additional strategy types (`strategies/mean_reversion.py`). The ETF workflow stays untouched; stocks share infrastructure but have separate entry points.
+- **Mean-reversion for ETFs**: EWJ/EEM-type macro ETFs show near-zero alpha with MA crossover. A contrarian RSI or Bollinger Band strategy could capture their rotation moves, but requires different position sizing (no persistent 2x leverage) and independent validation. The stock `mean_reversion` module is a starting point but would need adaptation.

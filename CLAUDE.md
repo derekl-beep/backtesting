@@ -6,7 +6,7 @@ Primary use cases: daily signal checks, backtesting, parameter optimization, por
 ## Environment
 
 ```bash
-source .venv/bin/activate   # always activate before running anything
+.venv/bin/python -m tools.signal SPMO GLD   # run directly, no activation needed
 ```
 
 ## Current portfolio
@@ -83,30 +83,42 @@ Returns: side-by-side of MA-only vs MA+RSI+MACD combos vs cash vs SH hedge.
 
 ```
 core/
-  config.py       shared constants
-  data.py         yfinance fetch (returns pd.Series of daily close)
-  metrics.py      calc(equity) → {cagr, sharpe, max_dd, total}
-  simulator.py    run(prices, positions, capital) → {equity, leverage, margin_calls, fees}
+  config.py         shared constants
+  data.py           yfinance fetch (returns pd.Series of daily close)
+  metrics.py        calc(equity) → {cagr, sharpe, max_dd, total}
+  simulator.py      run(prices, positions, capital) → {equity, leverage, margin_calls, fees}
 signals/
-  ma.py           signal(prices, fast, slow) → 0/1 Series
-  rsi.py          signal(prices, threshold) → 0/1 Series
-  macd.py         signal(prices, fast, slow, signal) → 0/1 Series
-  combo.py        majority_of / all_of / any_of combinators
+  ma.py             signal(prices, fast, slow) → 0/1 Series
+  ma_3tier.py       signal(prices, fast, mid, slow) → 0/1/2 Series
+  rsi.py            signal(prices, threshold) → 0/1 Series
+  rsi_band.py       signal(prices, period, oversold, overbought) → 0/1 stateful latch
+  macd.py           signal(prices, fast, slow, signal) → 0/1 Series
+  combo.py          majority_of / all_of / any_of combinators
 strategies/
-  momentum.py     positions(signal, leverage) → leverage Series
-tools/
-  signal.py       live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
-  backtest.py     single-ETF backtest + chart
-  portfolio.py    multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
-  optimize.py     walk-forward optimizer
-  screen.py       ETF screener: correlation + strategy stats
-  compare.py      multi-strategy comparison
-charts/           all generated .png files saved here
+  momentum.py       2x bull / 1x bear  (ETF-style — hold when bearish)
+  momentum_cash.py  2x bull / 0x cash  (stock default — exit when bearish)
+  momentum_3t.py    2x / 1x / 0x  (three-tier, for stocks only)
+  mean_reversion.py 1x in-trade / 0x cash  (RSI band entry/exit)
+tools/  (ETF — master branch)
+  signal.py         live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
+  backtest.py       single-ETF backtest + chart
+  portfolio.py      multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
+  optimize.py       walk-forward optimizer
+  screen.py         ETF screener: correlation + strategy stats
+  compare.py        multi-strategy comparison
+tools/  (stocks — feature/stock-backtesting branch)
+  stock_rank.py     daily ranking of watchlist by momentum strength (start here)
+  stock_signal.py   live signal + position sizing per stock (STOCK_CONFIGS at top)
+  stock_screen.py   momentum-cash vs mean-rev alpha per ticker
+  stock_backtest.py per-stock backtest with strategy selection
+  stock_portfolio.py N-stock weighted portfolio backtest
+  stock_optimize.py walk-forward MA optimizer (--tier 2 default, --tier 3 for 3-tier)
+charts/             all generated .png files saved here
 ```
 
 ## Common workflows
 
-**Daily check:**
+**Daily ETF check:**
 ```bash
 python -m tools.signal SPMO GLD
 ```
@@ -123,15 +135,40 @@ python -m tools.optimize --final SPMO
 ```
 Only run once per year — it consumes the holdout period.
 
+**Stock daily workflow (feature/stock-backtesting branch):**
+```bash
+# 1. Rank watchlist to find today's entry candidates
+python -m tools.stock_rank
+
+# 2. Drill into a specific stock for sizing
+python -m tools.stock_signal NVDA
+
+# 3. Screen a new stock before adding it
+python -m tools.stock_screen NVDA MSFT AAPL TSLA META
+
+# 4. Backtest (default: momentum_cash vs mean_rev side-by-side)
+python -m tools.stock_backtest NVDA
+python -m tools.stock_backtest NVDA --strategy momentum_cash
+python -m tools.stock_backtest NVDA --strategy compare    # momentum_cash vs ETF-style
+
+# 5. Optimize MA params (2-tier default, sweeps fast/slow pairs)
+python -m tools.stock_optimize NVDA
+python -m tools.stock_optimize --tier 3 NVDA   # 3-tier: sweeps fast/mid, slow=200
+
+# 6. Portfolio backtest
+python -m tools.stock_portfolio NVDA MSFT AAPL                   # equal weight
+python -m tools.stock_portfolio NVDA:0.5 MSFT:0.3 AAPL:0.2      # specified weights
+```
+
+Stock strategies:
+- `momentum_cash` (default): 2x when MA_fast > MA_slow, 0x cash when bearish
+- `mean_rev`: 1x when RSI < 30 (latch until RSI > 70), 0x cash otherwise
+- `momentum` (ETF-style): 2x bullish, 1x hold bearish — avoid for stocks
+- Per-ticker configs live in `STOCK_CONFIGS` at top of `tools/stock_signal.py`
+
 ## Roadmap
 
-**Mean-reversion strategy** — ETFs driven by macro/sector rotation (EWJ, EEM) show near-zero
-alpha with MA crossover signals. A contrarian RSI or Bollinger Band strategy could capture
-these moves but requires a separate signal framework, different position sizing (no persistent
-2x leverage), and independent walk-forward validation. Would be a new strategy module.
-
-**Individual stock backtesting** — Reuse `core/` and `signals/` infrastructure; add stock-specific
-tools alongside existing ETF tools. New modules: `tools/stock_screen.py` (large-universe screener,
-hundreds of tickers), `tools/stock_backtest.py` (per-stock with strategy selection),
-`tools/stock_portfolio.py` (N-stock dynamic allocation), `strategies/mean_reversion.py`.
-ETF workflow stays untouched.
+**Mean-reversion for ETFs** — EWJ/EEM-type macro ETFs show near-zero alpha with MA crossover.
+A contrarian RSI or Bollinger Band strategy could capture their moves but requires a separate
+signal framework, different position sizing (no persistent 2x leverage), and independent
+walk-forward validation. Would be a new strategy module distinct from the stock mean_rev tool.
