@@ -60,7 +60,18 @@ Saves chart to `charts/screen_results.png`.
 Use to find low-correlation candidates with positive strategy alpha before adding to portfolio.
 EWJ/EEM-type macro ETFs tend to show near-zero alpha — see Roadmap.
 
-### Walk-forward optimization
+### Portfolio tuning (recommended — joint optimization)
+```bash
+python -m tools.tune              # optimize all tickers jointly, show comparison
+python -m tools.tune --apply      # same, but write changes if Sharpe improves
+```
+Runs portfolio-level walk-forward optimization across all joint MA param combos,
+backtests current vs recommended, and gates --apply on Sharpe improvement.
+
+Use this instead of per-ticker optimize when retuning the whole portfolio.
+Per-ticker optimize is still useful for screening new ETFs before adding them.
+
+### Per-ticker walk-forward optimization
 ```bash
 python -m tools.optimize SPMO
 python -m tools.optimize --signals ma,rsi SPMO
@@ -68,10 +79,19 @@ python -m tools.optimize --signals ma,rsi,macd SPMO
 python -m tools.optimize --final SPMO      # held-out test — touch once per year
 ```
 Returns: per-fold OOS results, consistency table, recommended params.
-OOS folds: 2022–2025. Holdout: 2025–present.
+OOS folds: 2018–2025. Holdout: 2025–present.
 
-Run before adding a new ETF. Pick param with highest fold count; break ties by avg vs B&H CAGR.
+Run on new ETF candidates before screening them into the portfolio.
+Pick param with highest fold count; break ties by avg vs B&H CAGR (>5% threshold).
 Prefer MA-only over multi-signal unless improvement clearly survives fees.
+
+### Portfolio-level optimizer (standalone)
+```bash
+python -m tools.portfolio_optimize              # default portfolio
+python -m tools.portfolio_optimize SPMO:0.8 GLD:0.2
+```
+Sweeps 225 joint param combos across all tickers, ranks by portfolio alpha vs B&H.
+Use when you want to see the full OOS table without running the tune pipeline.
 
 ### Strategy comparison
 ```bash
@@ -100,12 +120,14 @@ strategies/
   momentum_3t.py    2x / 1x / 0x  (three-tier, for stocks only)
   mean_reversion.py 1x in-trade / 0x cash  (RSI band entry/exit)
 tools/  (ETF — master branch)
-  signal.py         live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
-  backtest.py       single-ETF backtest + chart
-  portfolio.py      multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
-  optimize.py       walk-forward optimizer
-  screen.py         ETF screener: correlation + strategy stats
-  compare.py        multi-strategy comparison
+  signal.py              live signal check (SIGNAL_CONFIGS at top — keep in sync with portfolio.py)
+  backtest.py            single-ETF backtest + chart
+  portfolio.py           multi-ETF portfolio backtest + chart (DEFAULT_PORTFOLIO at top)
+  optimize.py            per-ticker walk-forward optimizer
+  portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
+  tune.py                end-to-end pipeline: optimize → compare → apply
+  screen.py              ETF screener: correlation + strategy stats
+  compare.py             multi-strategy comparison
 tools/  (stocks — feature/stock-backtesting branch)
   stock_rank.py     daily ranking of watchlist by momentum strength (start here)
   stock_signal.py   live signal + position sizing per stock (STOCK_CONFIGS at top)
