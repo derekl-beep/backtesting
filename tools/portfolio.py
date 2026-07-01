@@ -115,7 +115,7 @@ def backtest(portfolio: dict) -> None:
     _print_per_leg(legs, common_idx)
     _print_aggregate(legs, portfolio_equity, blended_bah, blended_bah_2x)
     _print_yearly(blended_bah, portfolio_equity, blended_bah_2x)
-    plot(legs, portfolio_equity, blended_bah, common_idx)
+    plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx)
 
 
 def _print_per_leg(legs, common_idx):
@@ -175,13 +175,15 @@ def _print_yearly(bah, portfolio, bah_2x):
 _LEG_COLORS = ["darkorange", "green", "crimson", "purple", "brown", "teal"]
 
 
-def plot(legs, portfolio_equity, blended_bah, common_idx):
+def plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx):
     fig, (ax_eq, ax_lev) = plt.subplots(
         2, 1, figsize=(13, 10), gridspec_kw={"height_ratios": [3, 1]}
     )
 
     ax_eq.plot(blended_bah.index, blended_bah.values,
-               label="Blended B&H", color="steelblue", linewidth=1.5, linestyle="--")
+               label="Blended B&H 1x", color="steelblue", linewidth=1.5, linestyle="--")
+    ax_eq.plot(blended_bah_2x.index, blended_bah_2x.values,
+               label="Blended B&H 2x", color="mediumpurple", linewidth=1.5, linestyle="--")
     ax_eq.plot(portfolio_equity.index, portfolio_equity.values,
                label="Portfolio Strategy", color="black", linewidth=2)
     for i, leg in enumerate(legs):
