@@ -166,6 +166,11 @@ Stock strategies:
 - `momentum` (ETF-style): 2x bullish, 1x hold bearish — avoid for stocks
 - Per-ticker configs live in `STOCK_CONFIGS` at top of `tools/stock_signal.py`
 
+## Research log
+
+`RESEARCH.md` — running record of tested ETFs, rejected candidates, and signal config experiments.
+Check it before re-testing an idea. Update it whenever a backtest produces a clear finding.
+
 ## Roadmap
 
 **Mean-reversion for ETFs** — EWJ/EEM-type macro ETFs show near-zero alpha with MA crossover.
