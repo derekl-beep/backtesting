@@ -1,7 +1,7 @@
 """
 Run a backtest for one or more tickers.
 
-Strategy: MA30/50 + RSI>55 + MACD(12/26/9) majority vote.
+Strategy: MA50/100 crossover.
 Validated via walk-forward (2022-2024) + final holdout (2025-present).
 
 Usage:
@@ -16,28 +16,20 @@ from core import config
 from core.data import fetch
 from core.metrics import calc, print_comparison
 from core.simulator import run as simulate
-import signals.ma   as sig_ma
-import signals.rsi  as sig_rsi
-import signals.macd as sig_macd
-from signals.combo import majority_of
+from signals import ma as sig_ma
 from strategies import momentum
 
-MA_FAST       = 30
-MA_SLOW       = 50
-RSI_THRESHOLD = 55
-MACD_PARAMS   = (12, 26, 9)
+MA_FAST = 50
+MA_SLOW = 100
 
 
 def _signal(prices):
-    ma   = sig_ma.signal(prices, MA_FAST, MA_SLOW)
-    rsi  = sig_rsi.signal(prices, threshold=RSI_THRESHOLD)
-    macd = sig_macd.signal(prices, *MACD_PARAMS)
-    return majority_of([ma, rsi, macd])
+    return sig_ma.signal(prices, MA_FAST, MA_SLOW)
 
 
 def backtest(ticker: str):
     prices = fetch(ticker)
-    if len(prices) < MA_SLOW + 30:
+    if len(prices) < MA_SLOW + 10:
         print(f"{ticker}: not enough data.")
         return None
 
@@ -116,8 +108,8 @@ def plot(results: list, ma_fast: int, ma_slow: int):
         ax_lev.grid(alpha=0.3)
 
     fig.suptitle(
-        f"Strategy: MA{ma_fast}/{ma_slow} + RSI>{RSI_THRESHOLD} + MACD majority, "
-        f"{config.LEVERAGE}x, {config.MARGIN_RATE:.1%} borrow", fontsize=11, y=1.01)
+        f"Strategy: MA{ma_fast}/{ma_slow}, {config.LEVERAGE}x, "
+        f"{config.MARGIN_RATE:.1%} borrow", fontsize=11, y=1.01)
 
     plt.tight_layout()
     plt.savefig("backtest_results.png", dpi=150, bbox_inches="tight")
