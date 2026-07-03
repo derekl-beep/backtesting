@@ -22,14 +22,8 @@ import sys
 
 import numpy as np
 
-from core.data import fetch
-from core.portfolio_config import PORTFOLIO, DEFAULT_SIGNAL
-import signals.ma as sig_ma
-from tools.options_backtest import (
-    SIGNAL_TICKER, CALL_TICKER, IV_TICKER, ROLL_DTE,
-    _get_regimes, simulate_regime_with_rolls,
-)
-from tools.options_chain_check import iv_proxy_series
+from tools.options_backtest import SIGNAL_TICKER, ROLL_DTE, simulate_regime_with_rolls
+from tools.options_common import overlay_inputs
 
 CAPITAL      = 100_000
 TARGET_DELTA = 0.50
@@ -39,21 +33,8 @@ HORIZON      = 5   # future regimes to project
 
 
 def _regime_rops(ticker: str) -> list[float]:
-    """Per-regime return-on-premium for `ticker`'s own signal -> own calls,
-    or the shipped SPMO -> QQQ cross-ticker overlay if ticker == SIGNAL_TICKER."""
-    if ticker == SIGNAL_TICKER:
-        signal_prices = fetch(SIGNAL_TICKER)
-        call_prices   = fetch(CALL_TICKER)
-        iv_prices     = fetch(IV_TICKER)
-        cfg           = PORTFOLIO[SIGNAL_TICKER]
-    else:
-        signal_prices = fetch(ticker)
-        call_prices   = signal_prices
-        cfg           = PORTFOLIO.get(ticker, DEFAULT_SIGNAL)
-        iv_prices     = iv_proxy_series(ticker, signal_prices)
-
-    signal  = sig_ma.signal(signal_prices, cfg["ma_fast"], cfg["ma_slow"])
-    regimes = _get_regimes(signal)
+    """Per-regime return-on-premium for `ticker`'s call-options overlay."""
+    call_prices, iv_prices, regimes, _ = overlay_inputs(ticker)
 
     rops = []
     for start, end in regimes:

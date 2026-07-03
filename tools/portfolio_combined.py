@@ -29,49 +29,34 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from core.data import fetch
 from core.metrics import calc
-from core.portfolio_config import PORTFOLIO, DEFAULT_SIGNAL
-import signals.ma as sig_ma
-from tools.options_backtest import (
-    SIGNAL_TICKER, CALL_TICKER, IV_TICKER, ROLL_DTE,
-    _get_regimes, _build_portfolio_equity, simulate_regime_with_rolls,
-)
-from tools.options_chain_check import iv_proxy_series
+from tools.options_backtest import SIGNAL_TICKER, ROLL_DTE, _build_portfolio_equity, simulate_regime_with_rolls
+from tools.options_common import overlay_inputs
 
 CHART_DIR = Path(__file__).parent.parent / "charts" / "portfolio_combined"
 
 
-def _base_overlay_spec(delta, budget, roll_dte):
-    spmo   = fetch(SIGNAL_TICKER)
-    qqq    = fetch(CALL_TICKER)
-    vix    = fetch(IV_TICKER)
-    cfg    = PORTFOLIO[SIGNAL_TICKER]
-    signal = sig_ma.signal(spmo, cfg["ma_fast"], cfg["ma_slow"])
+def _overlay_spec(ticker, delta, budget, roll_dte):
+    """Build an overlay spec dict for `ticker`'s own signal -> own calls, or
+    the shipped SPMO -> QQQ cross-ticker overlay if ticker == SIGNAL_TICKER."""
+    call_prices, iv_prices, regimes, name = overlay_inputs(ticker)
     return {
-        "name":        f"{SIGNAL_TICKER}→{CALL_TICKER}",
-        "call_prices": qqq,
-        "iv_prices":   vix,
-        "regimes":     _get_regimes(signal),
+        "name":        name,
+        "call_prices": call_prices,
+        "iv_prices":   iv_prices,
+        "regimes":     regimes,
         "delta":       delta,
         "budget":      budget,
         "roll_dte":    roll_dte,
     }
+
+
+def _base_overlay_spec(delta, budget, roll_dte):
+    return _overlay_spec(SIGNAL_TICKER, delta, budget, roll_dte)
 
 
 def _extra_overlay_spec(ticker, delta, budget, roll_dte):
-    prices = fetch(ticker)
-    cfg    = PORTFOLIO.get(ticker, DEFAULT_SIGNAL)
-    signal = sig_ma.signal(prices, cfg["ma_fast"], cfg["ma_slow"])
-    return {
-        "name":        f"{ticker}→{ticker}",
-        "call_prices": prices,
-        "iv_prices":   iv_proxy_series(ticker, prices),
-        "regimes":     _get_regimes(signal),
-        "delta":       delta,
-        "budget":      budget,
-        "roll_dte":    roll_dte,
-    }
+    return _overlay_spec(ticker, delta, budget, roll_dte)
 
 
 def build_combined_equity(capital, overlay_specs):
