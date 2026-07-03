@@ -346,6 +346,14 @@ A contrarian RSI or Bollinger Band strategy could capture their moves but requir
 signal framework, different position sizing (no persistent 2x leverage), and independent
 walk-forward validation. Would be a new strategy module distinct from the stock mean_rev tool.
 
+**Leverage on sector rotation** — cross-sectional relative-strength sector rotation (rank 9
+SPDR sectors by trailing return, hold top N, rebalance monthly) was tested 2026-07-03 at 1x
+exposure: roughly halves SPY's drawdown with comparable-to-slightly-better Sharpe, but CAGR
+is in the same ballpark as buy-and-hold, not the outsized returns the leveraged momentum
+strategy shows. Untested: does layering the same "2x when confirmed strong" leverage
+mechanism used elsewhere in this project on top of sector rotation turn "comparable CAGR,
+better risk profile" into genuine outperformance? See RESEARCH.md for the full backtest.
+
 ---
 
 ### Options strategies on the SPMO bull signal (to backtest)
@@ -353,15 +361,16 @@ walk-forward validation. Would be a new strategy module distinct from the stock 
 All of these use the SPMO MA10/200 signal as the entry/exit trigger. Ranked roughly by
 implementation complexity, easiest first.
 
-**1. Bull call spread** — buy ATM call + sell OTM call at a higher strike. Cheaper than a
-naked long call (sold call funds part of the premium), capped upside. Best fit for short/medium
-regimes (< 150 days) where a monster move is less likely. Backtest: sweep spread width vs naked
-call across regime history; check if premium saving outweighs upside cap.
+**1. Bull call spread — tested and rejected, 2026-07-03.** Naked ATM call beats both a wide
+(Δ0.50/0.30) and narrow (Δ0.50/0.40) spread on total dollar P&L for both SPMO→QQQ (+$52.5K
+vs +$52.1K/+$47.1K) and SMH→SMH (+$83.1K vs +$56.7K/+$49.1K) — the short leg caps exactly
+the rare monster-move legs that drive most of the strategy's return. See RESEARCH.md.
 
-**2. Covered calls on the margin leg** — while holding SPMO 2x bullish, sell a monthly OTM call
-against the position. Collects income during choppy mid-regime legs (identified in rolling
-backtest: 2020–2022 Legs 2/4, 2023–2025 Leg 1 all negative). Risk: caps upside if SPMO
-rips past the short strike. Backtest: monthly short call overlay on the margin equity curve.
+**2. Covered calls on the margin leg — tested and rejected, 2026-07-03.** Selling monthly
+Δ0.30 calls against the 2x SPMO notional made things worse on every metric: CAGR 28.0%→26.7%,
+Sharpe 0.97→0.91, MaxDD -35.8%→-42.2% (worse, not better). A single assigned cycle during a
+strong up-month cost -$173,912, outweighing dozens of small premium wins. Same root cause as
+the spread rejection above. See RESEARCH.md.
 
 **3. Leveraged ETF rotation (TQQQ / UPRO) — tested and rejected, 2026-07-03.** Ran
 `tools.screen`/`tools.optimize` directly on TQQQ/UPRO/SOXL: all show strongly negative alpha
@@ -383,11 +392,13 @@ upfront cost — effectively free leverage when premiums net to zero. Risk: shor
 uncapped downside if regime fails (same concern as naked put selling). Backtest: simulate
 entry/exit at regime boundaries; model put assignment risk on losing regimes.
 
-**6. Sell puts during bear regimes** — when SPMO flips bearish, sell cash-secured puts on QQQ
-at a strike near where you'd want to re-enter. Collect premium while waiting; if assigned,
-you've bought QQQ at a discount to the bear-flip price. Risk: tail risk in sharp bear markets
-(2020 COVID: QQQ dropped 28% before recovering). Backtest: per bear-regime put P&L including
-assignment scenarios; stress-test the 2020 regime.
+**6. Sell puts during bear regimes — tested, modestly positive, 2026-07-03.** Selling
+monthly Δ-0.30 puts on QQQ during all 9 SPMO bear stretches: CAGR 28.0%→28.4%, Sharpe
+0.97→1.00, MaxDD roughly flat (-35.8%→-36.5%). Unlike items #1/#2, this doesn't cap an
+existing winning position — it's a standalone premium-harvesting overlay during periods
+already out of the market. Real but modest; 2022 was the roughest historical test and held
+up, though a longer/deeper bear regime than any seen 2016-2026 could look worse. See
+RESEARCH.md. Worth adding as a minor enhancement if the operational overhead is acceptable.
 
 **Implementation notes:**
 - `tools/options_backtest.py` already has the BS pricer, VIX IV proxy, regime extractor, and
