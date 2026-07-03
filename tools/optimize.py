@@ -127,15 +127,30 @@ def _build_folds(prices, last_year=None):
 
 
 def _sweep_folds(prices, folds, combos, signals):
-    """Run walk-forward sweep. Returns (appearances dict, oos_records list)."""
+    """
+    Run walk-forward sweep.
+    Returns (appearances dict, oos_records list, skipped list).
+
+    A fold lands in `skipped` (not silently dropped) when either every combo
+    fails to even run on the training data, or every combo runs but none
+    satisfies the risk constraints — the latter happens permanently for any
+    ticker whose expanding training window has crossed a drawdown beyond
+    MAX_DRAWDOWN_LIMIT, since max_dd is measured over the whole window.
+    """
     appearances = defaultdict(int)
     oos_records = []
+    skipped     = []
 
     for train, oos, test_year in folds:
         fold_label = f"{test_year} OOS  (train: {TRAIN_START[:4]}–{test_year-1})"
 
         results = [m for p in combos if (m := _run_params(train, p, signals))]
         if not results:
+            skipped.append({
+                "test_year": test_year,
+                "fold":      fold_label,
+                "reason":    "training run failed for every param combo (data or signal error)",
+            })
             continue
 
         df = pd.DataFrame(results)
@@ -143,6 +158,17 @@ def _sweep_folds(prices, folds, combos, signals):
             (df["max_dd"] >= config.MAX_DRAWDOWN_LIMIT) &
             (df["margin_calls"] <= config.MAX_MARGIN_CALLS)
         ].sort_values("cagr", ascending=False).head(TOP_N)
+
+        if passing.empty:
+            best_dd = df["max_dd"].max()
+            skipped.append({
+                "test_year": test_year,
+                "fold":      fold_label,
+                "reason":    (f"no combo passed constraints on training data "
+                              f"(best max_dd {best_dd:.1%}, needs ≥ "
+                              f"{config.MAX_DRAWDOWN_LIMIT:.0%})"),
+            })
+            continue
 
         for _, row in passing.iterrows():
             key = tuple(sorted(row["params"].items()))
@@ -153,6 +179,7 @@ def _sweep_folds(prices, folds, combos, signals):
             m = _run_params(oos, row["params"], signals)
             if m:
                 oos_records.append({
+                    "test_year": test_year,
                     "fold":     fold_label,
                     "label":    _param_label(row["params"], signals),
                     "params":   row["params"],
@@ -160,10 +187,10 @@ def _sweep_folds(prices, folds, combos, signals):
                     "bah_cagr": bah["cagr"],
                 })
 
-    return appearances, oos_records
+    return appearances, oos_records, skipped
 
 
-def _print_oos_table(oos_df, appearances, n_folds, signals):
+def _print_oos_table(oos_df, appearances, n_folds, signals, skipped=()):
     w = max(len(_param_label(p, signals)) for p in
             [{k: v for k, v in key} for key in appearances] or [{}]) + 2
     w = max(w, 14)
@@ -173,13 +200,24 @@ def _print_oos_table(oos_df, appearances, n_folds, signals):
           f"{'vs B&H':>8} {'Pass?':>6}")
     print(f"  {'-'*32} {'-'*w} {'-'*7} {'-'*7} {'-'*8} {'-'*6}")
 
-    for _, r in oos_df.iterrows():
+    rows = [(r["test_year"], r["fold"], "data", r) for _, r in oos_df.iterrows()]
+    rows += [(s["test_year"], s["fold"], "skipped", s) for s in skipped]
+    rows.sort(key=lambda x: (x[0], x[1]))
+
+    for _, fold_label, kind, r in rows:
+        if kind == "skipped":
+            print(f"  {fold_label:<32} SKIPPED — {r['reason']}")
+            continue
         passes = (r["oos_max_dd"] >= config.MAX_DRAWDOWN_LIMIT and
                   r["oos_margin_calls"] <= config.MAX_MARGIN_CALLS)
         diff = r["oos_cagr"] - r["bah_cagr"]
         print(f"  {r['fold']:<32} {r['label']:<{w}}  "
               f"{r['oos_cagr']:>6.1%}  {r['oos_max_dd']:>6.1%}  "
               f"{diff:>+7.1%}  {'YES' if passes else 'NO':>6}")
+
+    if skipped:
+        print(f"\n  {len(skipped)}/{n_folds} folds skipped entirely — no param combo "
+              f"satisfied the risk constraints on that fold's training data.")
 
     print(f"\n  Consistency (appearances in top {TOP_N} across {n_folds} folds):")
     print(f"  {'Params':<{w}} {'Count':>6} {'Avg CAGR':>10} "
@@ -243,13 +281,19 @@ def run(tickers, signals):
         print(f"  {ticker}")
         print(f"{'='*70}")
 
-        appearances, oos_records = _sweep_folds(prices, folds, combos, signals)
+        appearances, oos_records, skipped = _sweep_folds(prices, folds, combos, signals)
         oos_df = pd.DataFrame(oos_records)
         if oos_df.empty:
-            print("  No results passed constraints.")
+            if skipped:
+                print(f"  No results passed constraints. "
+                      f"{len(skipped)}/{len(folds)} folds skipped:")
+                for s in sorted(skipped, key=lambda x: x["test_year"]):
+                    print(f"    {s['fold']}: {s['reason']}")
+            else:
+                print("  No results passed constraints.")
             continue
 
-        ranked = _print_oos_table(oos_df, appearances, len(folds), signals)
+        ranked = _print_oos_table(oos_df, appearances, len(folds), signals, skipped=skipped)
         if ranked:
             best_params = {k: v for k, v in ranked[0][0]}
             print(f"\n  Recommended: {_param_label(best_params, signals)}")
@@ -275,10 +319,22 @@ def run_final_test(tickers, signals):
         print(f"\n  {ticker} — Stage 1: selecting params on folds "
               f"{FIRST_TEST_YEAR}–{HOLDOUT_YEAR - 1}")
 
-        appearances, opt_records = _sweep_folds(prices, opt_folds, combos, signals)
+        appearances, opt_records, skipped = _sweep_folds(prices, opt_folds, combos, signals)
         if not appearances:
-            print("  No params passed constraints.")
+            if skipped:
+                print(f"  No params passed constraints. "
+                      f"{len(skipped)}/{len(opt_folds)} folds skipped:")
+                for s in sorted(skipped, key=lambda x: x["test_year"]):
+                    print(f"    {s['fold']}: {s['reason']}")
+            else:
+                print("  No params passed constraints.")
             continue
+
+        if skipped:
+            print(f"  ({len(skipped)}/{len(opt_folds)} folds skipped — no combo passed "
+                  f"constraints on that fold's training data)")
+            for s in sorted(skipped, key=lambda x: x["test_year"]):
+                print(f"    {s['fold']}: {s['reason']}")
 
         opt_df = pd.DataFrame(opt_records)
 
