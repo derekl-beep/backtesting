@@ -131,9 +131,11 @@ Extended backtest history from 2020 to 2016 (SPMO launch), giving 8 OOS folds (2
 | Sharpe | 1.14 | 1.00 |
 | Fees | ~$102 | $254 |
 
-**Why new params underperformed:** MA10 fast window whipsaws 2.5x more, generating extra trades and fees that eat the per-fold OOS alpha. The optimizer evaluates tickers in isolation and doesn't account for compounding trading costs at the portfolio level.
+**Why new params underperformed:** ~~MA10 fast window whipsaws 2.5x more, generating extra trades and fees that eat the per-fold OOS alpha.~~ **Correction (2026-07-03):** fees are not the cause — at $10K capital, MA10/100 paid $254 total vs $108 for MA10/200 over 10 years, a difference that rounds to 0.0% CAGR impact. The real reason is the slow MA choice. MA10/200 keeps you in bull regimes longer before flipping bearish; in 2021 alone this was worth +14.9% (MA10/200: 42.9% vs MA10/100: 28.0%). That single-year gap compounds into a lower ending equity that the OOS fold averages smooth over (each fold resets to its own equity, so per-fold alpha looks higher for MA10/100 even though full-period CAGR is lower).
 
-**Conclusion:** Reverted to MA50/100 / MA30/50. The fast-MA alpha doesn't survive at the portfolio level. This is a known limitation of per-ticker optimization — fee drag from a fast signal on a leveraged position compounds badly. The `MIN_AVG_ALPHA` filter and tie-breaking fix remain in the optimizer for future use.
+**Why the heatmap shows MA10/100 ahead:** The sensitivity heatmap reports avg OOS alpha per fold — MA10/100 catches more regime entries across folds and shows +9.2% avg alpha vs +1.5% for MA10/200. But full-period CAGR is dominated by compounding: missing 15% in a strong year like 2021 permanently reduces the base for all future returns. The fold-level average doesn't capture this.
+
+**Conclusion:** Keeping MA10/200. The longer slow window wins on full-period compounding by staying in strong bull runs longer. Fee drag is negligible at current capital sizes. The `MIN_AVG_ALPHA` filter and tie-breaking fix remain in the optimizer for future use.
 
 ### MA+RSI+MACD vs MA-only — rejected (pre-2026)
 
@@ -227,6 +229,33 @@ Rerun with +20% implied vol at entry (i.e., you buy when options are expensive):
 `python -m tools.options_backtest --combined`        — margin + overlay equity curve (ATM, 3%)
 `python -m tools.options_backtest --sweep`           — budget sweep table + chart (ATM default)
 `python -m tools.options_backtest --delta 0.30 --sweep`  — OTM version
+
+### Rolling model — key findings, 2026-07-03
+
+Implemented rolling: close at 30 DTE, open a new ATM call. Each regime can span multiple legs (max 150 calendar days per leg = 180-day tenor minus 30-day roll buffer).
+
+**Long regimes have multiple legs:**
+| Regime | Duration | Legs | QQQ return | RoP |
+|--------|----------|------|------------|-----|
+| 2016–2018 | 738 days | 5 | +49.0% | +70% |
+| 2020–2022 | 622 days | 5 | +54.1% | +38% |
+| 2023–2025 | 659 days | 5 | +15.6% | +26% |
+
+**Last leg of every long regime is a loser.** The regime ends because SPMO is weakening, which means QQQ is also weakening — so the final call leg is entered when the underlying starts to fade. All three 5-leg regimes had a negative or near-zero final leg. This is structural, not bad luck: the exit signal lags price by design (200-day MA). Accept the last-leg loss as the cost of not exiting early and giving up mid-regime gains.
+
+**Short regimes (< 150 days) are single-leg and usually small wins.** The 7-day whipsaw (Feb 2022) returned +12% RoP because the call still had 5 months of life left when it closed — time value wasn't meaningfully damaged.
+
+**Rolling vs non-rolling:** prior single-leg model overstated returns on long regimes by only entering once per regime. The rolling model is correct: it actually trades each leg and compounds properly. Backtest results should only be cited from the rolling model (`run()` now always uses rolling).
+
+**Strategy comparison (3% overlay budget on combined):**
+| Strategy | CAGR | Sharpe | MaxDD |
+|----------|------|--------|-------|
+| Margin only | 28.0% | 0.97 | −35.8% |
+| Options-only (10%) | 22.9% | 1.47 | 0.0% |
+| Combined (3%) | 34.6% | 0.99 | −27.3% |
+| QQQ B&H | 20.5% | 0.95 | −35.1% |
+
+Sweet spot: **combined at 3–5% overlay.** Lifts CAGR +6–8% over margin-only while keeping Sharpe flat and reducing MaxDD by ~8%. Options-only is interesting as a capital-efficient sidecar (zero drawdown) but lower CAGR than combined.
 
 ### Open questions for next session
 

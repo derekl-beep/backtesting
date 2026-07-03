@@ -110,6 +110,29 @@ python -m tools.portfolio_optimize SPMO:0.8 GLD:0.2
 Sweeps 225 joint param combos across all tickers, ranks by portfolio alpha vs B&H.
 Use when you want to see the full OOS table without running the tune pipeline.
 
+### Live options trade recommendation
+```bash
+python -m tools.options_signal
+python -m tools.options_signal --capital 150000
+python -m tools.options_signal --delta 0.30     # OTM calls instead
+```
+Returns: SPMO signal state, current bull/bear regime duration, recommended QQQ call
+(nearest real expiry ~6 months, ATM strike, estimated premium), contract count at
+3/5/10% budget levels, unrealized P&L on the current leg (if mid-regime), and
+roll/exit triggers. Use when SPMO is bullish to know exactly what to buy.
+
+### Options backtest
+```bash
+python -m tools.options_backtest                   # per-regime breakdown, all deltas
+python -m tools.options_backtest --combined        # margin + overlay equity curve
+python -m tools.options_backtest --options-only    # options-only strategy (no margin)
+python -m tools.options_backtest --compare         # all three strategies side-by-side
+python -m tools.options_backtest --sweep           # budget fraction sweep table + chart
+python -m tools.options_backtest --delta 0.30 --budget 0.05
+```
+Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.50 default.
+Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
+
 ### Strategy comparison
 ```bash
 python -m tools.compare SPMO
@@ -151,8 +174,10 @@ strategies/
   mean_reversion.py 1x in-trade / 0x cash  (RSI band entry/exit)
 tools/  (ETF — master branch)
   signal.py              live signal check (params from core/portfolio_config.py)
+  options_signal.py      live options trade recommendation (what QQQ call to buy today)
   backtest.py            single-ETF backtest + chart
   portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
+  options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
   tune.py                end-to-end pipeline: optimize → compare → apply
@@ -231,3 +256,49 @@ Check it before re-testing an idea. Update it whenever a backtest produces a cle
 A contrarian RSI or Bollinger Band strategy could capture their moves but requires a separate
 signal framework, different position sizing (no persistent 2x leverage), and independent
 walk-forward validation. Would be a new strategy module distinct from the stock mean_rev tool.
+
+---
+
+### Options strategies on the SPMO bull signal (to backtest)
+
+All of these use the SPMO MA10/200 signal as the entry/exit trigger. Ranked roughly by
+implementation complexity, easiest first.
+
+**1. Bull call spread** — buy ATM call + sell OTM call at a higher strike. Cheaper than a
+naked long call (sold call funds part of the premium), capped upside. Best fit for short/medium
+regimes (< 150 days) where a monster move is less likely. Backtest: sweep spread width vs naked
+call across regime history; check if premium saving outweighs upside cap.
+
+**2. Covered calls on the margin leg** — while holding SPMO 2x bullish, sell a monthly OTM call
+against the position. Collects income during choppy mid-regime legs (identified in rolling
+backtest: 2020–2022 Legs 2/4, 2023–2025 Leg 1 all negative). Risk: caps upside if SPMO
+rips past the short strike. Backtest: monthly short call overlay on the margin equity curve.
+
+**3. Leveraged ETF rotation (TQQQ / UPRO)** — when SPMO is bullish, hold TQQQ (3x QQQ) or
+UPRO (3x SPY) instead of 2x margin. No borrow cost, no margin call risk. Volatility decay hurts
+in choppy markets. Backtest: compare TQQQ/UPRO hold-when-bullish vs current 2x margin strategy
+across all regimes; measure vol-decay drag in sideways years (2021, 2023).
+
+**4. Diagonal spread (poor man's covered call)** — buy deep ITM LEAPS (Δ~0.85, 12–18 month
+expiry) as a stock replacement, sell near-term OTM calls monthly against it. LEAPS provide
+leveraged long exposure at lower capital than owning shares; short calls fund theta drag.
+Requires monthly management. Backtest: model LEAPS purchase at regime start + monthly short
+call income; compare net return vs naked long call and margin leg.
+
+**5. Synthetic long (sell ATM put + buy ATM call)** — same strike, same expiry. Net premium
+roughly zero (put credit offsets call debit). Gives stock-equivalent exposure with minimal
+upfront cost — effectively free leverage when premiums net to zero. Risk: short put has
+uncapped downside if regime fails (same concern as naked put selling). Backtest: simulate
+entry/exit at regime boundaries; model put assignment risk on losing regimes.
+
+**6. Sell puts during bear regimes** — when SPMO flips bearish, sell cash-secured puts on QQQ
+at a strike near where you'd want to re-enter. Collect premium while waiting; if assigned,
+you've bought QQQ at a discount to the bear-flip price. Risk: tail risk in sharp bear markets
+(2020 COVID: QQQ dropped 28% before recovering). Backtest: per bear-regime put P&L including
+assignment scenarios; stress-test the 2020 regime.
+
+**Implementation notes:**
+- `tools/options_backtest.py` already has the BS pricer, VIX IV proxy, regime extractor, and
+  rolling framework. New strategies extend this file or import from it.
+- Bear-regime put selling needs a separate `_get_bear_regimes()` helper (inverse of existing).
+- Covered calls need the margin equity curve from `_build_portfolio_equity()` as the base.
