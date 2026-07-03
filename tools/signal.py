@@ -221,6 +221,50 @@ def check(ticker: str, capital: float, prices: pd.Series = None):
     print()
 
 
+def _portfolio_summary(tickers: list[str], capital: float):
+    """Print a one-line portfolio-level action summary when 2+ tickers are checked."""
+    if len(tickers) < 2:
+        return
+
+    states = {}
+    for t in tickers:
+        cfg    = SIGNAL_CONFIGS.get(t, DEFAULT_CONFIG)
+        prices = fetch(t, start=START)
+        if len(prices) < cfg["ma_slow"] + 10:
+            continue
+        sig = _build_signal(prices, cfg)
+        states[t] = {
+            "on":     bool(sig.iloc[-1] == 1),
+            "weight": cfg.get("weight", 1.0 / len(tickers)),
+        }
+
+    if not states:
+        return
+
+    on_tickers  = [t for t, s in states.items() if s["on"]]
+    off_tickers = [t for t, s in states.items() if not s["on"]]
+    on_weight   = sum(states[t]["weight"] for t in on_tickers)
+
+    print(f"\n{'═'*52}")
+    print(f"  PORTFOLIO SUMMARY")
+    print(f"{'═'*52}")
+
+    if len(on_tickers) == len(states):
+        print(f"  ✦ ALL SIGNALS ON — full {LEVERAGE:.0f}x margin on 100% of portfolio")
+        print(f"    Deploy ${capital * LEVERAGE:,.0f} total  (${capital:,.0f} own + ${capital*(LEVERAGE-1):,.0f} borrowed)")
+    elif not on_tickers:
+        print(f"  ◦ ALL SIGNALS OFF — no margin, hold 1x positions")
+        print(f"    Hold ${capital:,.0f} unleveraged across all legs")
+    else:
+        on_str  = " + ".join(f"{t} ({states[t]['weight']:.0%})" for t in on_tickers)
+        off_str = " + ".join(f"{t} ({states[t]['weight']:.0%})" for t in off_tickers)
+        print(f"  ◑ MIXED — {LEVERAGE:.0f}x on {on_weight:.0%} of portfolio")
+        print(f"    Margin ON:  {on_str}")
+        print(f"    Margin OFF: {off_str}  (hold 1x)")
+
+    print(f"{'═'*52}\n")
+
+
 if __name__ == "__main__":
     args    = sys.argv[1:]
     capital = INITIAL_CAPITAL
@@ -238,15 +282,17 @@ if __name__ == "__main__":
     alert = "--alert" in args
     args  = [a for a in args if a != "--alert"]
 
-    tickers  = args if args else ["SPMO"]
+    tickers  = [a.upper() for a in args] if args else ["SPMO"]
     statuses = []
     for t in tickers:
-        t      = t.upper()
         cfg    = SIGNAL_CONFIGS.get(t, DEFAULT_CONFIG)
         prices = fetch(t, start=START)
         check(t, capital, prices=prices)
         if alert and len(prices) >= cfg["ma_slow"] + 10:
             statuses.append(alert_status(t, prices, cfg, threshold_pct=threshold))
+
+    if len(tickers) > 1:
+        _portfolio_summary(tickers, capital)
 
     if alert:
         print("ALERT_STATUS_JSON")
