@@ -143,6 +143,58 @@ Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.
 Default budget: **5%** (research sweet spot — best Sharpe, Calmar improves over margin-only).
 Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
 
+### Validate pricing model against a real option chain
+```bash
+python -m tools.options_chain_check              # QQQ, the shipped overlay underlying
+python -m tools.options_chain_check QQQ GLD SMH
+python -m tools.options_chain_check SMH --delta 0.30
+python -m tools.options_chain_check GLD --tenor 90
+```
+Pulls the real live option chain nearest the modeled tenor/delta and prints model price/IV
+next to the real quote, spread, and open interest. Everything else in `options_backtest.py`/
+`options_signal.py` is theoretical Black-Scholes pricing — run this periodically to catch
+the proxy IV drifting away from real market pricing. See RESEARCH.md for the first run's
+findings (VIX currently underprices QQQ's real IV; realized vol overstates SMH's).
+
+### Bootstrap confidence intervals over historical regimes
+```bash
+python -m tools.options_bootstrap                  # default: SPMO signal -> QQQ calls
+python -m tools.options_bootstrap GLD SMH
+python -m tools.options_bootstrap SMH --horizon 10  # project 10 future regimes instead of 5
+```
+Resamples historical per-regime returns (with replacement) to turn point-estimate win
+rate/median RoP into confidence intervals, and projects a forward distribution over the
+next N regimes (compounded capital return, P(losing money)). Only 9-13 historical regimes
+exist per ticker — treat this as "how much to trust the point estimate," not a guarantee.
+**Caveat:** a ticker with zero historical losing regimes (e.g. SPMO, 9/9) will always
+bootstrap to a 100% win-rate CI — that reflects an all-positive sample, not proof the
+strategy can't lose. See RESEARCH.md for the full readout.
+
+### Options-parameter sensitivity (delta x budget heatmap)
+```bash
+python -m tools.options_sensitivity                # default: SPMO signal -> QQQ calls
+python -m tools.options_sensitivity GLD SMH
+```
+Grids target delta (0.30-0.85) x budget fraction (1%-20%), evaluated as median RoP across
+every historical regime — the options-overlay analog of `tools.sensitivity`'s MA heatmap.
+Also splits regime history in half chronologically to flag a decaying edge. First run found
+GLD's rejection holds across the *entire* grid (not just the default point), SPMO/QQQ's edge
+has roughly halved over time (still positive), and SMH's strong number is front-loaded into
+the recent semiconductor rally. See RESEARCH.md for details.
+
+### Multi-overlay portfolio aggregation
+```bash
+python -m tools.portfolio_combined                       # margin + shipped SPMO->QQQ overlay only
+python -m tools.portfolio_combined --add SMH:0.50:0.03    # + SMH signal -> SMH calls
+python -m tools.portfolio_combined --add SMH:0.50:0.03 --no-base
+```
+Generalizes `options_backtest.py --combined` (margin + exactly one overlay) to margin + any
+number of simultaneous options overlays sharing one capital base — needed once there's more
+than one options position at a time. Regimes from every overlay are merged chronologically
+so a later overlay's dynamic budget sizing reflects earlier overlays' realized P&L. First
+run: margin + SPMO/QQQ + SMH/SMH together lifts CAGR 28.0%→35.0%, Sharpe 0.97→1.22, and
+*reduces* MaxDD to -26.3% (better than margin-only or either overlay alone). See RESEARCH.md.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -203,6 +255,10 @@ tools/  (ETF — master branch)
   backtest.py            single-ETF backtest + chart
   portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
   options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
+  options_chain_check.py validate the BS pricing model against a real live option chain (IV, price, spread, OI)
+  options_bootstrap.py   bootstrap confidence intervals over historical regimes (win rate/RoP CI + forward projection)
+  options_sensitivity.py delta x budget heatmap + first/second-half decay check for the options overlay
+  portfolio_combined.py  margin legs + N simultaneous options overlays on one shared capital base
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
@@ -300,10 +356,13 @@ against the position. Collects income during choppy mid-regime legs (identified 
 backtest: 2020–2022 Legs 2/4, 2023–2025 Leg 1 all negative). Risk: caps upside if SPMO
 rips past the short strike. Backtest: monthly short call overlay on the margin equity curve.
 
-**3. Leveraged ETF rotation (TQQQ / UPRO)** — when SPMO is bullish, hold TQQQ (3x QQQ) or
-UPRO (3x SPY) instead of 2x margin. No borrow cost, no margin call risk. Volatility decay hurts
-in choppy markets. Backtest: compare TQQQ/UPRO hold-when-bullish vs current 2x margin strategy
-across all regimes; measure vol-decay drag in sideways years (2021, 2023).
+**3. Leveraged ETF rotation (TQQQ / UPRO) — tested and rejected, 2026-07-03.** Ran
+`tools.screen`/`tools.optimize` directly on TQQQ/UPRO/SOXL: all show strongly negative alpha
+vs their own B&H at baseline (-18% to -41%), and none pass the -50% drawdown constraint even
+in the first OOS fold (2018 alone produces -53% to -74% MaxDD). Volatility decay from daily
+fund rebalancing is fundamentally incompatible with a slow MA-crossover trigger at any
+exposure level. See RESEARCH.md for details. Closed — do not revisit without a materially
+different (faster/adaptive) signal.
 
 **4. Diagonal spread (poor man's covered call)** — buy deep ITM LEAPS (Δ~0.85, 12–18 month
 expiry) as a stock replacement, sell near-term OTM calls monthly against it. LEAPS provide
