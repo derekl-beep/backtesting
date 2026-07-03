@@ -354,6 +354,23 @@ strategy shows. Untested: does layering the same "2x when confirmed strong" leve
 mechanism used elsewhere in this project on top of sector rotation turn "comparable CAGR,
 better risk profile" into genuine outperformance? See RESEARCH.md for the full backtest.
 
+**Web UI — discussed 2026-07-03, not yet scoped or built.** All tooling today is CLI +
+PNG charts + a growing `RESEARCH.md` log. Discussed whether a web UI would help: verdict
+was yes, but narrowly — for *checking* things, not for doing research. Concrete slices
+worth considering, roughly in priority order:
+  1. **Daily signal dashboard** — current signal state, days in regime, distance to flip,
+     position sizing, rendered as a page instead of requiring `tools.signal` in a terminal.
+     Highest value since it's the most frequent action (checked daily).
+  2. **Chart/research browsing** — a searchable/filterable view over the dated PNG charts
+     in `charts/` and the findings in `RESEARCH.md`, instead of scrolling files.
+  3. **Interactive parameter exploration** — sliders for delta/budget/MA windows that
+     recompute `tools.sensitivity`/`tools.options_sensitivity`-style output live, instead
+     of re-running CLI flags one at a time.
+  Explicitly NOT in scope: replacing the CLI for actual backtesting/research — that's
+  faster in code today, and a browser-triggered arbitrary-backtest surface adds security
+  considerations without speeding up that loop. If pursued, keep it read-only/reporting,
+  not a way to kick off new runs from a browser.
+
 ---
 
 ### Options strategies on the SPMO bull signal (to backtest)
