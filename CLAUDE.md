@@ -133,6 +133,21 @@ python -m tools.options_backtest --delta 0.30 --budget 0.05
 Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.50 default.
 Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
 
+### Risk-adjusted sizing analysis
+```bash
+python -m tools.sizing
+python -m tools.sizing --delta 0.30     # OTM calls
+python -m tools.sizing --capital 150000
+```
+Answers: how much options budget should I use per regime? Shows Calmar ratio (CAGR/|MaxDD|),
+Sharpe, and CAGR across budget fractions 1–20%. Derives three sizing tiers:
+  - Conservative: budget that maximizes Sharpe
+  - Moderate: lowest budget where Calmar ≥ 1.5 (or best available)
+  - Aggressive: budget that maximizes CAGR
+Also shows a Kelly cross-check with a clear caveat (9 regimes is too few for reliable Kelly
+estimates — use Calmar/Sharpe targets as the primary guide). Saves a 4-panel chart to
+`charts/sizing_YYYY-MM-DD.png`.
+
 ### Strategy comparison
 ```bash
 python -m tools.compare SPMO
@@ -178,6 +193,7 @@ tools/  (ETF — master branch)
   backtest.py            single-ETF backtest + chart
   portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
   options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
+  sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
   tune.py                end-to-end pipeline: optimize → compare → apply

@@ -257,9 +257,32 @@ Implemented rolling: close at 30 DTE, open a new ATM call. Each regime can span 
 
 Sweet spot: **combined at 3–5% overlay.** Lifts CAGR +6–8% over margin-only while keeping Sharpe flat and reducing MaxDD by ~8%. Options-only is interesting as a capital-efficient sidecar (zero drawdown) but lower CAGR than combined.
 
+### Risk-adjusted sizing — findings, 2026-07-03
+
+`python -m tools.sizing` shows Calmar ratio (CAGR / |MaxDD|) and Sharpe across budget fractions 1–20%.
+
+**Calmar is the right metric here.** Sharpe penalizes all volatility equally; retail traders care more about drawdowns (margin calls, psychological limits) than upside vol. Calmar captures exactly the tradeoff we care about.
+
+**Kelly is unreliable with 9 regimes.** Historical win rate of 9/9 (all options regimes profitable) gives Gaussian Kelly of 174% and binary Kelly of infinite — both meaningless for sizing. Kelly requires 30+ loss observations to be reliable. Note for the future: as more regimes accumulate, Kelly will converge to something usable.
+
+**Calmar frontier (at $10K capital, ATM Δ0.50):**
+| Budget | CAGR | Sharpe | Calmar | MaxDD | Tier |
+|--------|------|--------|--------|-------|------|
+| 7%  | 31.8% | 1.10 | 1.14 | −27.8% | Conservative (max Sharpe) |
+| 15% | 38.4% | 0.87 | 1.29 | −29.8% | Moderate (max Calmar) |
+| 20% | 43.7% | 0.80 | 1.22 | −35.9% | Aggressive (max CAGR) |
+
+- Margin-only baseline: CAGR 27.9%, Calmar 0.78, MaxDD −35.8%
+- Every budget level from 1% to 20% improves Calmar above baseline
+- Calmar peaks at 15% then declines — high option drawdowns at 20% drag it back down
+- Calmar 1.5 target not reached in this data; would require higher sample or larger capital effects
+
+**Practical approach:** start Conservative (7%, max Sharpe), scale toward Moderate (15%) after 3+ live regimes confirm live-trading accuracy of the model.
+
 ### Open questions for next session
 
 1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
 2. **Entry filter:** enter on regime flip always, or wait N days / filter by VIX level? High-VIX entries had the best returns (2020, 2025) — filtering them out would be wrong.
 3. **GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.
 4. **Real execution:** Futu HK options access, contract costs, margin treatment of long calls. Need to verify before committing capital.
+5. **Kelly revisit:** once 20+ regimes have accumulated (live + historical), rerun `tools.sizing` — Kelly will become a reliable cross-check on the Calmar-derived sizes.
