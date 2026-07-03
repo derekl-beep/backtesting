@@ -1154,6 +1154,97 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
 # CLI
 # ---------------------------------------------------------------------------
 
+def strategy_compare(target_delta=0.50, budget_frac=0.03, capital=100_000,
+                     iv_shock=0.0, roll_dte=ROLL_DTE):
+    """
+    Print a side-by-side comparison of all three strategy variants:
+      1. Margin-only (SPMO 80% + GLD 20%, 2x leverage)
+      2. Options-only (QQQ calls + T-bill cash)
+      3. Combined (margin + call overlay)
+
+    Also prints a unified year-by-year table.
+    """
+    from core.metrics import calc
+
+    print(f"\n{'='*72}")
+    print(f"  Strategy comparison  —  Δ{target_delta:.2f} calls, {budget_frac:.0%}/regime budget")
+    print(f"  Signal: SPMO MA{PORTFOLIO[SIGNAL_TICKER]['ma_fast']}/"
+          f"{PORTFOLIO[SIGNAL_TICKER]['ma_slow']}  |  capital: ${capital:,.0f}")
+    print(f"{'='*72}")
+
+    # 1. margin only
+    margin_eq, overlay_eq, _ = combined_analysis(
+        target_delta=target_delta, budget_frac=budget_frac,
+        capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
+    )
+    m_margin = calc(margin_eq)
+
+    # 2. options only
+    opt_eq, _ = options_only_backtest(
+        target_delta=target_delta, budget_frac=0.10,
+        capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
+    )
+    m_opt = calc(opt_eq)
+
+    # 3. combined
+    m_comb = calc(overlay_eq)
+
+    # QQQ B&H as external baseline
+    qqq = fetch(CALL_TICKER)
+    bah = capital * qqq / qqq.iloc[0]
+    bah = bah.reindex(margin_eq.index).ffill()
+    m_bah = calc(bah.dropna())
+
+    cols = ["Margin only", "Options-only\n(10%/regime)", "Combined\n(margin+3%)", "QQQ B&H"]
+    metrics_list = [m_margin, m_opt, m_comb, m_bah]
+    label_col = 22
+
+    def row(name, vals):
+        return f"  {name:<{label_col}}" + "".join(f"{v:>16}" for v in vals)
+
+    print(f"\n  {'':22}" + "".join(f"{'Margin only':>16}") +
+          f"{'Opt-only 10%':>16}{'Combined 3%':>16}{'QQQ B&H':>16}")
+    print(f"  {'─' * 86}")
+    print(row("CAGR", [f"{m['cagr']:.1%}" for m in metrics_list]))
+    print(row("Sharpe", [f"{m['sharpe']:.2f}" for m in metrics_list]))
+    print(row("Max drawdown", [f"{m['max_dd']:.1%}" for m in metrics_list]))
+    print(row("Total return", [f"{m['total']:.1%}" for m in metrics_list]))
+    print(row("Final equity", [f"${capital * (1 + m['total']):,.0f}" for m in metrics_list]))
+
+    # year-by-year
+    print(f"\n  {'Year':<6} {'Margin':>10} {'Opt-only':>10} {'Combined':>10} {'QQQ B&H':>10}")
+    print(f"  {'─' * 50}")
+    for yr in sorted(set(margin_eq.index.year)):
+        def yr_ret(eq):
+            s = eq[eq.index.year == yr]
+            return f"{s.iloc[-1]/s.iloc[0]-1:+.1%}" if len(s) >= 2 else "—"
+        print(f"  {yr:<6} {yr_ret(margin_eq):>10} {yr_ret(opt_eq):>10} "
+              f"{yr_ret(overlay_eq):>10} {yr_ret(bah):>10}")
+
+    # chart: three equity curves
+    fig, ax = plt.subplots(figsize=(13, 6))
+    ax.plot(margin_eq.index, margin_eq.values, color="steelblue",  lw=1.5,
+            label=f"Margin only  CAGR {m_margin['cagr']:.1%}")
+    ax.plot(opt_eq.index,    opt_eq.values,    color="darkorange", lw=1.5,
+            label=f"Options-only (10%)  CAGR {m_opt['cagr']:.1%}")
+    ax.plot(overlay_eq.index, overlay_eq.values, color="green",   lw=1.5,
+            label=f"Combined (3%)  CAGR {m_comb['cagr']:.1%}")
+    ax.plot(bah.index, bah.values, color="gray", lw=1.0, linestyle="--",
+            label=f"QQQ B&H  CAGR {m_bah['cagr']:.1%}")
+    ax.set_ylabel("Portfolio value ($)")
+    ax.set_title(f"Strategy comparison  —  QQQ Δ{target_delta:.2f}, {budget_frac:.0%} budget\n"
+                 f"Margin-only vs Options-only vs Combined vs QQQ B&H")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+    plt.tight_layout()
+    CHART_DIR.mkdir(exist_ok=True)
+    out = CHART_DIR / f"options_compare_{date.today()}.png"
+    fig.savefig(out, dpi=110)
+    plt.close(fig)
+    print(f"\n  Chart saved to {out}\n")
+
+
 def _parse_args():
     args = sys.argv[1:]
     delta        = 0.50
@@ -1163,6 +1254,7 @@ def _parse_args():
     combined     = False
     sweep        = False
     options_only = False
+    compare      = False
     i = 0
     while i < len(args):
         if args[i] == "--delta" and i + 1 < len(args):
@@ -1179,16 +1271,22 @@ def _parse_args():
             sweep = True; i += 1
         elif args[i] == "--options-only":
             options_only = True; i += 1
+        elif args[i] == "--compare":
+            compare = True; i += 1
         else:
             i += 1
-    return delta, budget, shock, roll, combined, sweep, options_only
+    return delta, budget, shock, roll, combined, sweep, options_only, compare
 
 
 if __name__ == "__main__":
-    target_delta, budget_frac, iv_shock, roll_dte, show_combined, show_sweep, show_options_only = _parse_args()
+    target_delta, budget_frac, iv_shock, roll_dte, show_combined, show_sweep, show_options_only, show_compare = _parse_args()
     capital = 100_000
 
-    if show_options_only:
+    if show_compare:
+        strategy_compare(target_delta=target_delta, budget_frac=budget_frac,
+                         capital=capital, iv_shock=iv_shock, roll_dte=roll_dte)
+
+    elif show_options_only:
         if show_sweep:
             options_only_sweep(target_delta=target_delta, capital=capital,
                                iv_shock=iv_shock, roll_dte=roll_dte)
