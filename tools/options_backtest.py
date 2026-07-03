@@ -201,6 +201,125 @@ def simulate_regime(entry_date, exit_date, qqq_prices, vix_prices,
     }
 
 
+ROLL_DTE = 30   # roll when this many calendar days remain on the option
+
+
+def simulate_regime_with_rolls(entry_date, exit_date, qqq_prices, vix_prices,
+                                target_delta, budget_frac, capital, iv_shock=0.0,
+                                roll_dte=ROLL_DTE):
+    """
+    Simulate a single bull regime using a rolling strategy.
+
+    When a call reaches `roll_dte` days to expiry, close it and open a fresh
+    ATM call with the same budget fraction applied to current cash. Repeat
+    until the regime ends.
+
+    Returns:
+      sub_trades  — list of individual leg dicts (one per call bought)
+      aggregate   — combined P&L/metrics across all legs
+    """
+    qqq_dates  = qqq_prices.index
+    vix_ffill  = vix_prices.reindex(qqq_dates, method="ffill")
+    roll_window = TENOR_DAYS - roll_dte   # hold each call this many calendar days
+
+    sub_trades = []
+    current_cash = float(capital)
+    leg_entry = pd.Timestamp(entry_date)
+    regime_end = pd.Timestamp(exit_date)
+
+    while leg_entry < regime_end:
+        # roll date: hold for roll_window calendar days, then roll
+        roll_date  = leg_entry + pd.Timedelta(days=roll_window)
+        leg_exit   = min(roll_date, regime_end)   # whichever comes first
+
+        # snap to tradeable dates
+        ei = qqq_dates.searchsorted(leg_entry)
+        xi = qqq_dates.searchsorted(leg_exit)
+        if ei >= len(qqq_dates):
+            break
+        ei = min(ei, len(qqq_dates) - 1)
+        xi = min(xi, len(qqq_dates) - 1)
+        leg_entry_ts = qqq_dates[ei]
+        leg_exit_ts  = qqq_dates[xi]
+
+        if leg_entry_ts >= leg_exit_ts:
+            break
+
+        S_entry = float(qqq_prices.iloc[ei])
+        S_exit  = float(qqq_prices.iloc[xi])
+        T_entry = TENOR_DAYS / 365.0
+
+        vix_val     = float(vix_ffill.iloc[ei])
+        sigma_entry = max(vix_val / 100.0 * (1 + iv_shock), 0.05)
+        K = strike_for_delta(S_entry, T_entry, RISK_FREE_RATE, sigma_entry, target_delta)
+
+        price_entry = bs_call(S_entry, K, T_entry, RISK_FREE_RATE, sigma_entry)
+        if price_entry < 0.01:
+            break
+
+        # size to current cash
+        budget   = current_cash * budget_frac
+        n_contr  = max(1, int(budget / (price_entry * 100)))
+        prem_paid = n_contr * price_entry * 100 * (1 + SPREAD_COST)
+
+        # exit pricing
+        days_held = (leg_exit_ts - leg_entry_ts).days
+        T_exit    = max((TENOR_DAYS - days_held) / 365.0, 0.0)
+        sigma_exit = _realized_vol(qqq_prices, leg_exit_ts)
+        price_exit = bs_call(S_exit, K, T_exit, RISK_FREE_RATE, sigma_exit)
+        proceeds   = n_contr * price_exit * 100 * (1 - SPREAD_COST)
+
+        pnl = proceeds - prem_paid
+        current_cash -= prem_paid
+        current_cash += proceeds
+
+        is_roll = leg_exit < regime_end
+
+        sub_trades.append({
+            "entry_date":        str(leg_entry_ts.date()),
+            "exit_date":         str(leg_exit_ts.date()),
+            "days_held":         days_held,
+            "is_roll":           is_roll,
+            "S_entry":           round(S_entry, 2),
+            "S_exit":            round(S_exit, 2),
+            "qqq_return":        round(S_exit / S_entry - 1, 4),
+            "strike_K":          round(K, 2),
+            "delta_at_entry":    round(bs_delta(S_entry, K, T_entry, RISK_FREE_RATE, sigma_entry), 2),
+            "vix_at_entry":      round(vix_val, 1),
+            "n_contracts":       n_contr,
+            "premium_paid":      round(prem_paid, 2),
+            "proceeds":          round(proceeds, 2),
+            "pnl":               round(pnl, 2),
+            "return_on_premium": round(pnl / prem_paid, 4),
+        })
+
+        leg_entry = leg_exit_ts + pd.Timedelta(days=1)
+
+    if not sub_trades:
+        return [], None
+
+    total_prem = sum(t["premium_paid"] for t in sub_trades)
+    total_pnl  = sum(t["pnl"]          for t in sub_trades)
+    regime_qqq_ret = (
+        float(qqq_prices.reindex([regime_end], method="ffill").iloc[0]) /
+        float(qqq_prices.reindex([pd.Timestamp(entry_date)], method="ffill").iloc[0]) - 1
+    )
+
+    aggregate = {
+        "entry_date":        str(pd.Timestamp(entry_date).date()),
+        "exit_date":         str(regime_end.date()),
+        "n_legs":            len(sub_trades),
+        "total_premium":     round(total_prem, 2),
+        "total_proceeds":    round(total_prem + total_pnl, 2),
+        "total_pnl":         round(total_pnl, 2),
+        "return_on_premium": round(total_pnl / total_prem, 4) if total_prem else 0,
+        "regime_qqq_return": round(regime_qqq_ret, 4),
+        "capital_start":     round(capital, 2),
+        "capital_end":       round(current_cash, 2),
+    }
+    return sub_trades, aggregate
+
+
 # ---------------------------------------------------------------------------
 # Full backtest
 # ---------------------------------------------------------------------------
@@ -216,16 +335,33 @@ def _fetch_all():
     return spmo, qqq, vix, signal
 
 
-def run(target_delta=0.50, budget_frac=0.03, capital=100_000, iv_shock=0.0):
+def run(target_delta=0.50, budget_frac=0.03, capital=100_000, iv_shock=0.0,
+        roll_dte=ROLL_DTE):
     spmo, qqq, vix, signal = _fetch_all()
     regimes = _get_regimes(signal)
 
     results = []
     for start, end in regimes:
-        r = simulate_regime(start, end, qqq, vix,
-                            target_delta, budget_frac, capital, iv_shock)
-        if r:
-            results.append(r)
+        _, agg = simulate_regime_with_rolls(start, end, qqq, vix,
+                                            target_delta, budget_frac, capital,
+                                            iv_shock, roll_dte)
+        if agg:
+            # map aggregate keys to the legacy format callers expect
+            results.append({
+                "entry_date":        agg["entry_date"],
+                "exit_date":         agg["exit_date"],
+                "days_held":         (pd.Timestamp(agg["exit_date"]) -
+                                      pd.Timestamp(agg["entry_date"])).days,
+                "qqq_return":        agg["regime_qqq_return"],
+                "vix_at_entry":      0,   # aggregate — not meaningful per-regime
+                "strike_K":          0,
+                "delta_at_entry":    target_delta,
+                "premium_paid":      agg["total_premium"],
+                "proceeds":          agg["total_proceeds"],
+                "pnl":               agg["total_pnl"],
+                "return_on_premium": agg["return_on_premium"],
+                "n_legs":            agg["n_legs"],
+            })
 
     return results
 
@@ -258,54 +394,50 @@ def _build_portfolio_equity(capital: float) -> pd.Series:
     return combined.sum(axis=1)
 
 
-def combined_analysis(target_delta=0.50, budget_frac=0.03, capital=100_000, iv_shock=0.0):
+def combined_analysis(target_delta=0.50, budget_frac=0.03, capital=100_000,
+                      iv_shock=0.0, roll_dte=ROLL_DTE):
     """
     Show margin-only equity vs margin + ATM call overlay on the same capital base.
     The option premium is drawn from (and proceeds returned to) the portfolio equity.
+    Rolls are injected as cash flows at each leg boundary within a regime.
     """
     spmo, qqq, vix, signal = _fetch_all()
     regimes = _get_regimes(signal)
 
-    # base equity curve from margin strategy alone
     margin_equity = _build_portfolio_equity(capital)
-
-    # build overlay: copy margin equity, inject option cash flows at regime boundaries
     overlay_equity = margin_equity.copy()
-    option_events = []   # for display
+    option_events = []
 
     for start, end in regimes:
-        entry_ts = pd.Timestamp(start)
-
-        # size to current equity at regime entry, not fixed initial capital
-        entry_dates = overlay_equity.index
-        entry_idx = entry_dates.searchsorted(entry_ts)
-        if entry_idx >= len(entry_dates):
+        entry_ts  = pd.Timestamp(start)
+        entry_idx = overlay_equity.index.searchsorted(entry_ts)
+        if entry_idx >= len(overlay_equity):
             continue
         current_equity = float(overlay_equity.iloc[entry_idx])
 
-        r = simulate_regime(start, end, qqq, vix,
-                            target_delta, budget_frac, current_equity, iv_shock)
-        if r is None:
+        sub_trades, agg = simulate_regime_with_rolls(
+            start, end, qqq, vix, target_delta, budget_frac,
+            current_equity, iv_shock, roll_dte)
+        if not sub_trades:
             continue
 
-        entry_ts = pd.Timestamp(r["entry_date"])
-        exit_ts  = pd.Timestamp(r["exit_date"])
-
-        # deduct premium on entry day
-        if entry_ts in overlay_equity.index:
-            overlay_equity.loc[entry_ts:] -= r["premium_paid"]
-
-        # add proceeds on exit day
-        if exit_ts in overlay_equity.index:
-            overlay_equity.loc[exit_ts:] += r["proceeds"]
+        # inject each leg's cash flows into the equity curve
+        for leg in sub_trades:
+            leg_entry_ts = pd.Timestamp(leg["entry_date"])
+            leg_exit_ts  = pd.Timestamp(leg["exit_date"])
+            if leg_entry_ts in overlay_equity.index:
+                overlay_equity.loc[leg_entry_ts:] -= leg["premium_paid"]
+            if leg_exit_ts in overlay_equity.index:
+                overlay_equity.loc[leg_exit_ts:]  += leg["proceeds"]
 
         option_events.append({
-            "entry":          r["entry_date"],
-            "exit":           r["exit_date"],
-            "prem":           r["premium_paid"],
-            "proc":           r["proceeds"],
-            "pnl":            r["pnl"],
-            "rop":            r["return_on_premium"],
+            "entry":           agg["entry_date"],
+            "exit":            agg["exit_date"],
+            "n_legs":          agg["n_legs"],
+            "prem":            agg["total_premium"],
+            "proc":            agg["total_proceeds"],
+            "pnl":             agg["total_pnl"],
+            "rop":             agg["return_on_premium"],
             "equity_at_entry": current_equity,
         })
 
@@ -387,31 +519,49 @@ def _plot_combined(margin_equity, overlay_equity, target_delta, budget_frac):
 
 def _print_results(results, target_delta, budget_frac, iv_shock):
     shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
+    cfg = PORTFOLIO[SIGNAL_TICKER]
     print(f"\n{'='*80}")
-    print(f"  QQQ Call Overlay Backtest — Δ{target_delta:.2f} strike, "
-          f"{budget_frac:.0%} budget/regime{shock_str}")
-    print(f"  Signal source: SPMO MA{PORTFOLIO[SIGNAL_TICKER]['ma_fast']}/"
-          f"{PORTFOLIO[SIGNAL_TICKER]['ma_slow']}")
+    print(f"  QQQ Call Backtest — Δ{target_delta:.2f} strike, "
+          f"{budget_frac:.0%} budget/regime, roll at {ROLL_DTE} DTE{shock_str}")
+    print(f"  Signal source: SPMO MA{cfg['ma_fast']}/{cfg['ma_slow']}")
     print(f"{'='*80}")
 
-    col = "{:<12} {:<12} {:>5} {:>8} {:>7} {:>7} {:>8} {:>8} {:>9} {:>7}"
-    header = col.format("Entry", "Exit", "Days", "QQQ ret", "VIX", "Strike",
-                        "Δ", "Prem $", "P&L $", "RoP")
+    # rolling results have n_legs; single-leg results don't
+    has_legs = any(r.get("n_legs", 1) > 1 for r in results)
+
+    if has_legs:
+        col = "{:<12} {:<12} {:>5} {:>8} {:>6} {:>10} {:>9} {:>7}"
+        header = col.format("Entry", "Exit", "Days", "QQQ ret", "Legs",
+                            "Prem $", "P&L $", "RoP")
+    else:
+        col = "{:<12} {:<12} {:>5} {:>8} {:>7} {:>7} {:>8} {:>9} {:>7}"
+        header = col.format("Entry", "Exit", "Days", "QQQ ret", "VIX",
+                            "Strike", "Prem $", "P&L $", "RoP")
+
     print(f"\n  {header}")
     print(f"  {'-'*len(header)}")
 
     for r in results:
         flag = " *" if r["return_on_premium"] < -0.5 else ""
-        print(f"  " + col.format(
-            r["entry_date"], r["exit_date"], r["days_held"],
-            f"{r['qqq_return']:+.1%}",
-            f"{r['vix_at_entry']:.0f}",
-            f"${r['strike_K']:.0f}",
-            f"{r['delta_at_entry']:.2f}",
-            f"${r['premium_paid']:,.0f}",
-            f"${r['pnl']:+,.0f}",
-            f"{r['return_on_premium']:+.0%}",
-        ) + flag)
+        if has_legs:
+            print(f"  " + col.format(
+                r["entry_date"], r["exit_date"], r["days_held"],
+                f"{r['qqq_return']:+.1%}",
+                f"x{r.get('n_legs', 1)}",
+                f"${r['premium_paid']:,.0f}",
+                f"${r['pnl']:+,.0f}",
+                f"{r['return_on_premium']:+.0%}",
+            ) + flag)
+        else:
+            print(f"  " + col.format(
+                r["entry_date"], r["exit_date"], r["days_held"],
+                f"{r['qqq_return']:+.1%}",
+                f"{r['vix_at_entry']:.0f}",
+                f"${r['strike_K']:.0f}",
+                f"${r['premium_paid']:,.0f}",
+                f"${r['pnl']:+,.0f}",
+                f"{r['return_on_premium']:+.0%}",
+            ) + flag)
 
     if not results:
         print("  No regimes found.")
@@ -498,7 +648,7 @@ def _plot(results_by_delta, budget_frac, iv_shock):
 SWEEP_BUDGETS = [0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20]
 
 
-def budget_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0):
+def budget_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dte=ROLL_DTE):
     """
     Run combined_analysis across SWEEP_BUDGETS for a fixed delta.
     Returns list of metric dicts, one per budget fraction.
@@ -511,7 +661,7 @@ def budget_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0):
     for bf in SWEEP_BUDGETS:
         m_eq, o_eq, events = combined_analysis(
             target_delta=target_delta, budget_frac=bf,
-            capital=capital, iv_shock=iv_shock,
+            capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
         )
         if margin_eq is None:
             margin_eq = m_eq
@@ -658,16 +808,314 @@ def _plot_sweep(margin_eq, sweep_rows, target_delta, capital):
 
 
 # ---------------------------------------------------------------------------
+# Options-only backtest (no margin leg)
+# ---------------------------------------------------------------------------
+
+def options_only_backtest(target_delta=0.50, budget_frac=0.10, capital=100_000,
+                          iv_shock=0.0, roll_dte=ROLL_DTE):
+    """
+    Pure options strategy: capital sits in cash (earning T-bill rate) between
+    regimes and between rolls. On each SPMO bull flip, spend budget_frac of
+    current cash on QQQ calls. Roll at roll_dte DTE. No margin leg at all.
+    """
+    spmo, qqq, vix, signal = _fetch_all()
+    regimes = _get_regimes(signal)
+    all_dates = qqq.index
+    daily_cash_rate = RISK_FREE_RATE / 252
+
+    # collect all leg-level cash flow events keyed by date
+    # format: {date: [(+/- amount, label), ...]}
+    cash_flows = {}
+    regime_events = []
+
+    cash = float(capital)
+    for start, end in regimes:
+        sub_trades, agg = simulate_regime_with_rolls(
+            start, end, qqq, vix, target_delta, budget_frac,
+            cash, iv_shock, roll_dte)
+        if not sub_trades:
+            continue
+
+        for leg in sub_trades:
+            ed = pd.Timestamp(leg["entry_date"])
+            xd = pd.Timestamp(leg["exit_date"])
+            cash_flows.setdefault(ed, []).append(-leg["premium_paid"])
+            cash_flows.setdefault(xd, []).append(+leg["proceeds"])
+
+        # update cash with net regime outcome
+        cash += agg["total_pnl"]
+
+        regime_events.append({
+            "entry":             agg["entry_date"],
+            "exit":              agg["exit_date"],
+            "n_legs":            agg["n_legs"],
+            "qqq_return":        agg["regime_qqq_return"],
+            "premium_paid":      agg["total_premium"],
+            "proceeds":          agg["total_proceeds"],
+            "pnl":               agg["total_pnl"],
+            "return_on_premium": agg["return_on_premium"],
+            "cash_after":        round(cash, 2),
+        })
+
+    # build daily equity curve
+    cash = float(capital)
+    active_premium = 0.0   # track premium currently deployed (mark-at-cost)
+    active_legs = {}       # leg entry_date -> premium (for tracking active exposure)
+
+    eq_vals = []
+    for dt in all_dates:
+        flows = cash_flows.get(dt, [])
+        for amt in flows:
+            if amt < 0:
+                # premium out — option bought
+                active_premium += abs(amt)
+                cash += amt
+            else:
+                # proceeds in — option closed/expired
+                # reduce active premium by the original cost of the leg that just closed
+                # (approximate: reduce proportionally)
+                active_premium = max(0.0, active_premium - abs(amt) * 0.5)
+                cash += amt
+
+        cash *= (1 + daily_cash_rate)
+        eq_vals.append(cash + active_premium)
+
+    equity = pd.Series(eq_vals, index=all_dates)
+    return equity, regime_events
+
+
+def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock):
+    from core.metrics import calc
+
+    m = calc(equity)
+    total_return = equity.iloc[-1] / capital - 1
+    total_pnl  = sum(e["pnl"]  for e in events)
+    total_prem = sum(e["premium_paid"] for e in events)
+    wins = sum(1 for e in events if e["pnl"] > 0)
+    n    = len(events)
+
+    shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
+    print(f"\n{'='*80}")
+    print(f"  Options-only backtest — QQQ Δ{target_delta:.2f}, {budget_frac:.0%}/regime{shock_str}")
+    print(f"  Signal: SPMO MA{PORTFOLIO[SIGNAL_TICKER]['ma_fast']}/"
+          f"{PORTFOLIO[SIGNAL_TICKER]['ma_slow']}  |  "
+          f"Cash earns T-bill rate ({RISK_FREE_RATE:.1%}/yr) between regimes")
+    print(f"{'='*80}")
+
+    col = "{:<12} {:<12} {:>5} {:>8} {:>7} {:>8} {:>8} {:>9} {:>7}"
+    header = col.format("Entry", "Exit", "Days", "QQQ ret", "VIX",
+                        "Prem $", "P&L $", "RoP", "Cash after")
+    print(f"\n  {header}")
+    print(f"  {'-'*len(header)}")
+    for e in events:
+        print("  " + col.format(
+            e["entry"], e["exit"], e["days_held"],
+            f"{e['qqq_return']:+.1%}",
+            f"{e['vix_at_entry']:.0f}",
+            f"${e['premium_paid']:,.0f}",
+            f"${e['pnl']:+,.0f}",
+            f"{e['return_on_premium']:+.0%}",
+            f"${e['cash_after']:,.0f}",
+        ))
+
+    print(f"\n  {'─'*60}")
+    print(f"  Starting capital:   ${capital:,.0f}")
+    print(f"  Final equity:       ${equity.iloc[-1]:,.0f}")
+    print(f"  Total return:       {total_return:.1%}")
+    print(f"  CAGR:               {m['cagr']:.1%}")
+    print(f"  Sharpe:             {m['sharpe']:.2f}")
+    print(f"  Max drawdown:       {m['max_dd']:.1%}")
+    print(f"  Regimes traded:     {n}")
+    print(f"  Win rate:           {wins}/{n} = {wins/n:.0%}")
+    print(f"  Total premium:      ${total_prem:,.0f}")
+    print(f"  Net option P&L:     ${total_pnl:+,.0f}  ({total_pnl/total_prem:+.0%} on premium)")
+
+
+def _plot_options_only(equity, capital, target_delta, budget_frac):
+    from core.metrics import calc
+
+    # QQQ buy-and-hold benchmark over same period
+    qqq = fetch(CALL_TICKER)
+    qqq = qqq.reindex(equity.index).dropna()
+    bah = capital * qqq / qqq.iloc[0]
+    bah = bah.reindex(equity.index).ffill()
+
+    # T-bill only (pure cash, no options) — shows option contribution vs doing nothing
+    daily_rate = RISK_FREE_RATE / 252
+    cash_only  = pd.Series(
+        [capital * (1 + daily_rate) ** i for i in range(len(equity))],
+        index=equity.index,
+    )
+
+    m_opt = calc(equity)
+    m_bah = calc(bah.reindex(equity.index).dropna())
+
+    fig, axes = plt.subplots(2, 1, figsize=(13, 8),
+                             gridspec_kw={"height_ratios": [3, 1]})
+
+    ax = axes[0]
+    ax.plot(equity.index, equity.values, color="darkorange", lw=1.8,
+            label=f"Options only  CAGR {m_opt['cagr']:.1%}, Sharpe {m_opt['sharpe']:.2f}")
+    ax.plot(bah.index, bah.values, color="steelblue", lw=1.5, alpha=0.8,
+            label=f"QQQ B&H  CAGR {m_bah['cagr']:.1%}")
+    ax.plot(cash_only.index, cash_only.values, color="gray", lw=1, linestyle="--",
+            label=f"T-bill cash  ({RISK_FREE_RATE:.1%}/yr)")
+    ax.set_title(f"Options-only strategy — QQQ Δ{target_delta:.2f} calls, "
+                 f"{budget_frac:.0%} budget per SPMO bull regime")
+    ax.set_ylabel("Portfolio value ($)")
+    ax.legend()
+    ax.grid(alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+
+    # bottom: drawdown
+    ax2 = axes[1]
+    roll_max = equity.cummax()
+    dd = (equity - roll_max) / roll_max * 100
+    ax2.fill_between(dd.index, dd.values, 0, color="crimson", alpha=0.4)
+    ax2.set_ylabel("Drawdown (%)")
+    ax2.set_title("Options-only drawdown")
+    ax2.grid(alpha=0.3)
+
+    plt.tight_layout()
+    CHART_DIR.mkdir(exist_ok=True)
+    out = CHART_DIR / f"options_only_{date.today()}.png"
+    fig.savefig(out, dpi=110)
+    plt.close(fig)
+    print(f"\n  Chart saved to {out}")
+
+
+def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dte=ROLL_DTE):
+    """Sweep budget fractions for the options-only strategy."""
+    from core.metrics import calc
+
+    qqq = fetch(CALL_TICKER)
+    rows = []
+    for bf in SWEEP_BUDGETS:
+        eq, events = options_only_backtest(target_delta, bf, capital, iv_shock, roll_dte)
+        m = calc(eq)
+        total_pnl  = sum(e["pnl"] for e in events)
+        total_prem = sum(e["premium_paid"] for e in events)
+        wins = sum(1 for e in events if e["pnl"] > 0)
+        rows.append({
+            "budget_frac":  bf,
+            "total_return": eq.iloc[-1] / capital - 1,
+            "cagr":         m["cagr"],
+            "sharpe":       m["sharpe"],
+            "max_dd":       m["max_dd"],
+            "option_pnl":   total_pnl,
+            "rop":          total_pnl / total_prem if total_prem else 0,
+            "win_rate":     sum(1 for e in events if e["pnl"] > 0) / len(events),
+            "equity":       eq,
+        })
+
+    # QQQ B&H benchmark
+    eq0 = rows[0]["equity"]
+    qqq_a = qqq.reindex(eq0.index).dropna()
+    bah = capital * qqq_a / qqq_a.iloc[0]
+    bah_m = calc(bah)
+
+    shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
+    print(f"\n{'='*85}")
+    print(f"  Options-only budget sweep — QQQ Δ{target_delta:.2f} calls{shock_str}")
+    print(f"  QQQ B&H benchmark: CAGR {bah_m['cagr']:.1%}, "
+          f"Sharpe {bah_m['sharpe']:.2f}, MaxDD {bah_m['max_dd']:.1%}")
+    print(f"{'='*85}")
+
+    hdr = "{:<8} {:>10} {:>7} {:>8} {:>9} {:>10} {:>8} {:>8}"
+    print("\n  " + hdr.format("Budget", "Tot return", "CAGR", "Sharpe",
+                               "MaxDD", "Opt P&L $", "RoP", "Win%"))
+    print("  " + "─" * 72)
+    for r in rows:
+        beat = "  ✓" if r["cagr"] > bah_m["cagr"] else "   "
+        print("  " + hdr.format(
+            f"{r['budget_frac']:.0%}",
+            f"{r['total_return']:.1%}",
+            f"{r['cagr']:.1%}" + beat,
+            f"{r['sharpe']:.2f}",
+            f"{r['max_dd']:.1%}",
+            f"${r['option_pnl']:+,.0f}",
+            f"{r['rop']:+.0%}",
+            f"{r['win_rate']:.0%}",
+        ))
+
+    # fetch SPMO for signal panel
+    from signals import ma as sig_ma
+    spmo = fetch(SIGNAL_TICKER)
+    cfg  = PORTFOLIO[SIGNAL_TICKER]
+    spmo_signal = sig_ma.signal(spmo, cfg["ma_fast"], cfg["ma_slow"])
+    ma_fast_s = spmo.rolling(cfg["ma_fast"]).mean()
+    ma_slow_s = spmo.rolling(cfg["ma_slow"]).mean()
+    regimes   = _get_regimes(spmo_signal)
+
+    # two-panel layout: equity curves (top) + SPMO signal (bottom)
+    fig, axes = plt.subplots(2, 1, figsize=(14, 9),
+                             gridspec_kw={"height_ratios": [3, 1.2]},
+                             sharex=True)
+
+    # --- top: equity curves ---
+    ax = axes[0]
+    colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(rows)))
+    ax.plot(bah.index, bah.values, color="steelblue", lw=2,
+            label=f"QQQ B&H  CAGR {bah_m['cagr']:.1%}")
+    for i, r in enumerate(rows):
+        ax.plot(r["equity"].index, r["equity"].values, color=colors[i], lw=1.2,
+                label=f"{r['budget_frac']:.0%}  CAGR {r['cagr']:.1%}")
+
+    # shade bull regimes on equity panel too
+    for start, end in regimes:
+        ax.axvspan(pd.Timestamp(start), pd.Timestamp(end),
+                   alpha=0.07, color="green", linewidth=0)
+
+    ax.set_title(f"Options-only — QQQ Δ{target_delta:.2f}, budget sweep vs QQQ B&H\n"
+                 f"(green shading = SPMO bull regime, calls active)")
+    ax.set_ylabel("Portfolio value ($)")
+    ax.legend(fontsize=8, ncol=2)
+    ax.grid(alpha=0.3)
+    ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
+
+    # --- bottom: SPMO price + MAs + regime shading ---
+    ax2 = axes[1]
+    common = spmo.index.intersection(eq0.index)
+    ax2.plot(common, spmo.reindex(common).values,
+             color="black", lw=1.2, label="SPMO price")
+    ax2.plot(common, ma_fast_s.reindex(common).values,
+             color="darkorange", lw=1, linestyle="--",
+             label=f"MA{cfg['ma_fast']}")
+    ax2.plot(common, ma_slow_s.reindex(common).values,
+             color="crimson", lw=1, linestyle="--",
+             label=f"MA{cfg['ma_slow']}")
+
+    for start, end in regimes:
+        ax2.axvspan(pd.Timestamp(start), pd.Timestamp(end),
+                    alpha=0.15, color="green", linewidth=0)
+
+    ax2.set_ylabel("SPMO price ($)")
+    ax2.set_title(f"SPMO signal (MA{cfg['ma_fast']}/{cfg['ma_slow']}) — "
+                  f"green = bull regime (calls active)")
+    ax2.legend(fontsize=8, loc="upper left")
+    ax2.grid(alpha=0.3)
+
+    plt.tight_layout()
+    CHART_DIR.mkdir(exist_ok=True)
+    out = CHART_DIR / f"options_only_sweep_{date.today()}.png"
+    fig.savefig(out, dpi=110)
+    plt.close(fig)
+    print(f"\n  Chart saved to {out}")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
 def _parse_args():
     args = sys.argv[1:]
-    delta    = 0.50
-    budget   = 0.03
-    shock    = 0.0
-    combined = False
-    sweep    = False
+    delta        = 0.50
+    budget       = 0.10
+    shock        = 0.0
+    roll         = ROLL_DTE
+    combined     = False
+    sweep        = False
+    options_only = False
     i = 0
     while i < len(args):
         if args[i] == "--delta" and i + 1 < len(args):
@@ -676,44 +1124,59 @@ def _parse_args():
             budget = float(args[i + 1]); i += 2
         elif args[i] == "--iv-shock" and i + 1 < len(args):
             shock = float(args[i + 1]); i += 2
+        elif args[i] == "--roll-dte" and i + 1 < len(args):
+            roll = int(args[i + 1]); i += 2
         elif args[i] == "--combined":
             combined = True; i += 1
         elif args[i] == "--sweep":
             sweep = True; i += 1
+        elif args[i] == "--options-only":
+            options_only = True; i += 1
         else:
             i += 1
-    return delta, budget, shock, combined, sweep
+    return delta, budget, shock, roll, combined, sweep, options_only
 
 
 if __name__ == "__main__":
-    target_delta, budget_frac, iv_shock, show_combined, show_sweep = _parse_args()
+    target_delta, budget_frac, iv_shock, roll_dte, show_combined, show_sweep, show_options_only = _parse_args()
     capital = 100_000
 
-    if show_sweep:
-        # sweep mode: compare budget fractions for a fixed delta
-        print(f"  Sweeping budget fractions for QQQ Δ{target_delta:.2f} calls...")
+    if show_options_only:
+        if show_sweep:
+            options_only_sweep(target_delta=target_delta, capital=capital,
+                               iv_shock=iv_shock, roll_dte=roll_dte)
+        else:
+            equity, events = options_only_backtest(
+                target_delta=target_delta, budget_frac=budget_frac,
+                capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
+            )
+            _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock)
+            _plot_options_only(equity, capital, target_delta, budget_frac)
+
+    elif show_sweep:
+        print(f"  Sweeping budget fractions for QQQ Δ{target_delta:.2f} calls "
+              f"(roll at {roll_dte} DTE)...")
         margin_eq, sweep_rows = budget_sweep(
-            target_delta=target_delta, capital=capital, iv_shock=iv_shock)
+            target_delta=target_delta, capital=capital, iv_shock=iv_shock,
+            roll_dte=roll_dte)
         _print_sweep(margin_eq, sweep_rows, target_delta, capital, iv_shock)
         _plot_sweep(margin_eq, sweep_rows, target_delta, capital)
 
     elif show_combined:
-        # combined mode: single delta + budget, full equity curve
         margin_eq, overlay_eq, events = combined_analysis(
             target_delta=target_delta, budget_frac=budget_frac,
-            capital=capital, iv_shock=iv_shock,
+            capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
         )
         _print_combined(margin_eq, overlay_eq, events,
                         target_delta, budget_frac, capital)
         _plot_combined(margin_eq, overlay_eq, target_delta, budget_frac)
 
     else:
-        # default mode: per-regime breakdown across all three deltas
         all_deltas = [0.85, 0.50, 0.30]
         results_by_delta = {}
         for d in all_deltas:
             rows = run(target_delta=d, budget_frac=budget_frac,
-                       capital=capital, iv_shock=iv_shock)
+                       capital=capital, iv_shock=iv_shock, roll_dte=roll_dte)
             results_by_delta[d] = rows
 
         for d in all_deltas:
@@ -721,12 +1184,11 @@ if __name__ == "__main__":
 
         _plot(results_by_delta, budget_frac, iv_shock)
 
-        # IV sensitivity rerun if no shock was requested
         if iv_shock == 0.0:
             print(f"\n{'─'*60}")
             print("  IV sensitivity: rerunning with +20% IV shock at entry")
             print(f"{'─'*60}")
             for d in all_deltas:
                 rows_shocked = run(target_delta=d, budget_frac=budget_frac,
-                                   capital=capital, iv_shock=0.20)
+                                   capital=capital, iv_shock=0.20, roll_dte=roll_dte)
                 _print_results(rows_shocked, d, budget_frac, iv_shock=0.20)
