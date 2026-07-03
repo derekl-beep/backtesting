@@ -4,6 +4,10 @@ Live signal checker.
 Shows current signal state, MA/RSI/MACD values, days in regime,
 distance to flip, position sizing, and recent flip history.
 
+When multiple tickers are passed, appends a PORTFOLIO SUMMARY block
+showing the combined margin state (ALL ON / ALL OFF / MIXED) with
+per-leg weights and total capital to deploy.
+
 Usage:
   python -m tools.signal SPMO
   python -m tools.signal SPMO GLD

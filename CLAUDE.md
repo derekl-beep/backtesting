@@ -47,7 +47,9 @@ distance to MA flip, position sizing, last 5 signal flips.
 daily), `days_in_band`, and yesterday's distance. Used by the daily cloud routine
 so alerts stay stateless and deduplicated.
 
-Use this to answer: "should I be in margin today?", "how close is SPMO to flipping?"
+When multiple tickers are passed, appends a **PORTFOLIO SUMMARY** block showing the
+combined margin state: ALL ON / ALL OFF / MIXED with per-leg weights and total deploy
+amount. Use this to answer: "should I be in margin today?", "how close is SPMO to flipping?"
 
 ### Backtest a single ETF
 ```bash
@@ -55,7 +57,10 @@ python -m tools.backtest SPMO
 python -m tools.backtest SPMO QQQ SPY
 ```
 Returns: lifetime summary (CAGR, Sharpe, max drawdown, fees) + year-by-year table.
-Saves chart to `charts/backtest_results.png`.
+Saves chart to `charts/backtest/backtest_results_YYYY-MM-DD.png`.
+
+Uses each ticker's MA params from `PORTFOLIO` in `core/portfolio_config.py` (e.g. SPMO →
+MA10/200, GLD → MA20/100). Falls back to MA50/100 for tickers not in the portfolio.
 
 ### Portfolio backtest
 ```bash
@@ -65,14 +70,18 @@ python -m tools.portfolio SPMO:0.8:50:100 GLD:0.2:30:50
 Format: `TICKER:weight:ma_fast:ma_slow`. Weights must sum to 1.0.
 
 Returns: per-leg stats + portfolio aggregate vs B&H 1x and B&H 2x + year-by-year.
-Saves chart to `charts/portfolio_results.png`.
+Saves chart to `charts/portfolio/portfolio_results_YYYY-MM-DD.png`.
 
 ### ETF screener
 ```bash
 python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM EWJ NUKZ
 ```
 Returns: correlation matrix + per-ticker stats (B&H CAGR, strategy CAGR, alpha, Sharpe, MaxDD).
-Saves chart to `charts/screen_results.png`.
+Saves chart to `charts/screen/screen_results_YYYY-MM-DD.png`.
+
+Known portfolio tickers (SPMO, GLD) are evaluated at their configured MA params and marked
+with ✓. New candidate tickers are screened at MA50/100 as a neutral baseline — run
+`python -m tools.optimize <TICKER>` to find their optimal params before adding them.
 
 Use to find low-correlation candidates with positive strategy alpha before adding to portfolio.
 EWJ/EEM-type macro ETFs tend to show near-zero alpha — see Roadmap.
@@ -131,6 +140,7 @@ python -m tools.options_backtest --sweep           # budget fraction sweep table
 python -m tools.options_backtest --delta 0.30 --budget 0.05
 ```
 Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.50 default.
+Default budget: **5%** (research sweet spot — best Sharpe, Calmar improves over margin-only).
 Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
 
 ### Risk-adjusted sizing analysis

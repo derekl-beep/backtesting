@@ -1,10 +1,9 @@
 """
 ETF screener for portfolio construction.
 
-Evaluates each candidate with its own MA params: uses PORTFOLIO config for
-known tickers, DEFAULT_SIGNAL (MA50/100) for new candidates. This ensures
-SPMO and GLD are assessed at their actual configured params, while new ETFs
-are screened at a neutral baseline before you run optimize on them.
+Portfolio tickers (SPMO, GLD) are evaluated at their configured MA params
+and marked with ✓ in the output. New candidate tickers are screened at
+MA50/100 as a neutral baseline — run optimize on them before adding.
 
 Usage:
   python -m tools.screen SPMO VGT VOO TLT GLD EEM IWM

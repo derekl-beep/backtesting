@@ -1,11 +1,12 @@
 """
 Run a backtest for one or more tickers.
 
-Uses each ticker's configured MA params from core/portfolio_config.py when
-available, falling back to MA50/100 for unconfigured tickers.
+Uses each ticker's MA params from PORTFOLIO in core/portfolio_config.py
+(e.g. SPMO → MA10/200, GLD → MA20/100). Falls back to MA50/100 for
+tickers not in the portfolio. Chart labels show which params were used.
 
 Usage:
-  python -m tools.backtest                  # default portfolio tickers
+  python -m tools.backtest                  # all portfolio tickers
   python -m tools.backtest SPMO QQQ SPY
 """
 
