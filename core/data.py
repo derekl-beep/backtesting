@@ -26,8 +26,11 @@ _ET = ZoneInfo("America/New_York")
 # TLS fingerprint) fails behind TLS-terminating proxies that re-negotiate the
 # upstream connection themselves. A plain requests.Session with a normal
 # browser User-Agent works in both environments, so use it explicitly.
-_SESSION = requests.Session()
-_SESSION.headers.update({
+# Exported (not just module-private) so other yfinance call sites -- e.g.
+# Ticker.options / Ticker.option_chain() for real option-chain lookups --
+# can reuse the same fix instead of duplicating it.
+SESSION = requests.Session()
+SESSION.headers.update({
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
 })
@@ -53,7 +56,7 @@ def _cache_is_fresh(path: Path) -> bool:
 
 
 def _download(ticker: str, start: str = None, period: str = None) -> pd.Series:
-    kwargs = dict(auto_adjust=True, progress=False, session=_SESSION)
+    kwargs = dict(auto_adjust=True, progress=False, session=SESSION)
     if period:
         raw = yf.download(ticker, period=period, **kwargs)
     else:

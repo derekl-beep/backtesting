@@ -455,11 +455,69 @@ edge to the strategy as a bounded-risk satellite options position, separate from
 margin-based SPMO/GLD legs. Not yet sized or added to any tool — this is exploratory
 confirmation that the idea works, not a recommendation to deploy a specific budget yet.
 
-**Caveat:** realized-vol-as-IV-proxy is a bigger approximation for SMH than `^VIX`-for-QQQ
-or `^GVZ`-for-GLD (both are actual listed implied-vol indices; SMH's isn't). Real SMH option
-premiums would likely run higher than modeled here, which the +20%/+40% IV shock runs partly
-address, but a live paper-trade check against real quoted SMH option prices would be the
-real validation before sizing real capital.
+**Caveat (superseded — see real-chain check below):** realized-vol-as-IV-proxy is a bigger
+approximation for SMH than `^VIX`-for-QQQ or `^GVZ`-for-GLD (both are actual listed
+implied-vol indices; SMH's isn't). Originally assumed this meant real premiums would run
+*higher* than modeled — checking a live chain shows the opposite is true right now, see
+below.
+
+### New tool: validate the pricing model against a real option chain — 2026-07-03
+
+Built `tools/options_chain_check.py` — pulls the real, live option chain nearest our
+modeled tenor/delta for a ticker (via `yfinance`'s `Ticker.options`/`option_chain()`) and
+prints it next to what our Black-Scholes model would price, using the same IV proxy the
+backtest uses. This is the check flagged as the top toolbox priority: everything in
+`options_backtest.py`/`options_signal.py` has been theoretical pricing until now, never
+checked against a real quote.
+
+```
+python -m tools.options_chain_check QQQ GLD SMH
+python -m tools.options_chain_check SMH --delta 0.30
+python -m tools.options_chain_check GLD --tenor 90
+```
+
+**First live run (2026-07-03, ~180-day ATM calls), and it immediately found real issues:**
+
+| Ticker | Model IV | Real IV | Diff | Model price vs real mid | Real spread | Real OI |
+|---|---|---|---|---|---|---|
+| QQQ | 15.8% (`^VIX`) | 28.5% | **+12.7pt** | **-38.8%** (model too cheap) | 1.8% (vs 0.3% assumed) | 7,842 |
+| GLD | 26.0% (`^GVZ`) | 26.9% | +0.9pt | +18.5% | 12.9% (vs 0.3% assumed) | 30 (thin) |
+| SMH | 78.4% (realized vol) | 52.2% | **-26.2pt** | +93.7% (model too expensive) | 7.5% (vs 0.3% assumed) | 85 |
+
+**Findings:**
+- **`^GVZ` validates well for GLD** — real IV within 1 point of the proxy. Confirms the
+  choice was right, though real GLD LEAPS-style calls (180 DTE) are thin (OI 30, volume 3)
+  — a real fill would likely slip from the quoted mid regardless of pricing accuracy.
+- **`^VIX` is currently underpricing QQQ's real 6-month IV by ~13 points** — on this
+  particular day, QQQ's actual options are pricing in meaningfully more vol than the S&P500
+  index VIX tracks. This means the whole SPMO→QQQ overlay's historical backtest (which uses
+  VIX at entry throughout) may have been **systematically underpricing premiums** relative
+  to what you'd actually pay — worth rerunning the overlay's historical entries with an IV
+  shock closer to +15-20% as the realistic case rather than the stress case. This doesn't
+  invalidate the strategy (win rate/RoP would just shrink somewhat, and the existing +20%
+  IV-shock robustness check already showed it survives), but it's a live, current-day signal
+  that the model's default assumption runs optimistic right now.
+- **Realized vol *overstates* SMH's real IV by 26 points, the opposite of the assumed
+  direction.** SMH just had a sharp move, so trailing realized vol is running hot while the
+  options market isn't pricing in that much forward vol. This reverses the caveat above: the
+  SMH options research likely **understated** real-world RoP (options actually cost less
+  than modeled), not overstated it. Net effect on the SMH options conclusion: still
+  positive, probably *more* attractive than the modeled +82% median RoP, though this is a
+  single point-in-time snapshot, not a corrected backtest — the realized-vol proxy will
+  sometimes run cold relative to real IV too (e.g. right after a calm stretch), so this cuts
+  both ways over time and the historical backtest numbers should stand as a base case rather
+  than being revised from one day's chain check.
+- **Assumed `SPREAD_COST` (0.3%) is far too low for anything except QQQ.** Real spreads were
+  6x (QQQ), 43x (GLD), and 25x (SMH) the assumed cost. For QQQ this barely matters (0.3%
+  vs actual 1.8% is still small in absolute terms on a $2,700 contract). For GLD and SMH,
+  real spread cost alone would eat a meaningful chunk of any edge — another reason GLD's
+  rejection stands, and a real reason to be more conservative sizing SMH than the backtest
+  alone suggests.
+
+**Takeaway:** this is exactly the kind of check that should run periodically (not just once)
+— IV relationships between an underlying and its proxy index drift, and a single day's
+snapshot shouldn't be over-interpreted, but it already changed two conclusions (QQQ backtest
+may be too optimistic on premium cost; SMH backtest may be too pessimistic) in one run.
 
 ### Open questions for next session
 

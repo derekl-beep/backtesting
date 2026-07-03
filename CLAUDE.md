@@ -143,6 +143,19 @@ Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.
 Default budget: **5%** (research sweet spot — best Sharpe, Calmar improves over margin-only).
 Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
 
+### Validate pricing model against a real option chain
+```bash
+python -m tools.options_chain_check              # QQQ, the shipped overlay underlying
+python -m tools.options_chain_check QQQ GLD SMH
+python -m tools.options_chain_check SMH --delta 0.30
+python -m tools.options_chain_check GLD --tenor 90
+```
+Pulls the real live option chain nearest the modeled tenor/delta and prints model price/IV
+next to the real quote, spread, and open interest. Everything else in `options_backtest.py`/
+`options_signal.py` is theoretical Black-Scholes pricing — run this periodically to catch
+the proxy IV drifting away from real market pricing. See RESEARCH.md for the first run's
+findings (VIX currently underprices QQQ's real IV; realized vol overstates SMH's).
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -203,6 +216,7 @@ tools/  (ETF — master branch)
   backtest.py            single-ETF backtest + chart
   portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
   options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
+  options_chain_check.py validate the BS pricing model against a real live option chain (IV, price, spread, OI)
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
