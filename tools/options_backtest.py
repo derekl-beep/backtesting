@@ -168,7 +168,11 @@ def simulate_regime(entry_date, exit_date, qqq_prices, vix_prices,
     # trade economics
     premium_per_contract = price_entry * 100       # 1 contract = 100 shares
     budget = capital * budget_frac
-    n_contracts = max(1, int(budget / premium_per_contract))
+    n_contracts = int(budget / premium_per_contract)
+    if n_contracts < 1:
+        # budget can't cover even one contract at this premium — no trade,
+        # rather than silently overspending past the requested budget_frac
+        return None
     premium_paid = n_contracts * premium_per_contract * (1 + SPREAD_COST)
 
     proceeds = n_contracts * price_exit * 100 * (1 - SPREAD_COST)
@@ -259,7 +263,12 @@ def simulate_regime_with_rolls(entry_date, exit_date, qqq_prices, vix_prices,
 
         # size to current cash
         budget   = current_cash * budget_frac
-        n_contr  = max(1, int(budget / (price_entry * 100)))
+        n_contr  = int(budget / (price_entry * 100))
+        if n_contr < 1:
+            # budget can't cover even one contract this leg — skip it rather
+            # than silently overspending past the requested budget_frac
+            leg_entry = leg_exit_ts + pd.Timedelta(days=1)
+            continue
         prem_paid = n_contr * price_entry * 100 * (1 + SPREAD_COST)
 
         # exit pricing

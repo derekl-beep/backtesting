@@ -219,10 +219,16 @@ def recommend(capital: float = INITIAL_CAPITAL, target_delta: float = 0.50):
     print(f"\n  Sizing at different budget levels  (capital: ${capital:,.0f})")
     print(f"  {'Budget':>8}  {'Premium $':>10}  {'Contracts':>10}  {'Total cost':>12}")
     print(f"  {'─'*46}")
+    contract_cost = price * 100 * (1 + SPREAD_COST)
     for bf in DISPLAY_BUDGETS:
-        budget    = capital * bf
-        n         = max(1, int(budget / (price * 100)))
-        total     = n * price * 100 * (1 + SPREAD_COST)
+        budget = capital * bf
+        n      = int(budget / (price * 100))
+        if n < 1:
+            pct_needed = contract_cost / capital
+            print(f"  {bf:>7.0%}  ${budget:>9,.0f}  {'—':>10}  "
+                  f"below 1-contract min (${contract_cost:,.0f} = {pct_needed:.0%} of capital)")
+            continue
+        total = n * contract_cost
         print(f"  {bf:>7.0%}  ${budget:>9,.0f}  {n:>10}  ${total:>11,.0f}")
 
     # unrealized P&L on current leg
