@@ -11,6 +11,8 @@ Usage:
 """
 
 import sys
+from pathlib import Path
+
 import matplotlib
 matplotlib.use("Agg")
 import pandas as pd
@@ -27,6 +29,8 @@ from signals.combo import majority_of
 from strategies import momentum
 
 from core.portfolio_config import PORTFOLIO as DEFAULT_PORTFOLIO, MACD_PARAMS
+
+CHART_DIR = Path(__file__).parent.parent / "charts" / "portfolio"
 
 
 def _build_signal(prices, cfg: dict):
@@ -223,9 +227,10 @@ def plot(legs, portfolio_equity, blended_bah, blended_bah_2x, common_idx):
 
     plt.tight_layout()
     from datetime import date as _date
-    path = f"charts/portfolio/portfolio_results_{_date.today()}.png"
-    plt.savefig(path, dpi=150, bbox_inches="tight")
-    print(f"\nChart saved to {path}")
+    CHART_DIR.mkdir(parents=True, exist_ok=True)
+    out = CHART_DIR / f"portfolio_results_{_date.today()}.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {out}")
     plt.close()
 
 
@@ -345,9 +350,10 @@ def backtest_dynamic(portfolio: dict, driver: str = "SPMO") -> None:
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
     plt.tight_layout()
     from datetime import date as _date
-    path = f"charts/portfolio/portfolio_dynamic_{_date.today()}.png"
-    plt.savefig(path, dpi=150, bbox_inches="tight")
-    print(f"\nChart saved to {path}")
+    CHART_DIR.mkdir(parents=True, exist_ok=True)
+    out = CHART_DIR / f"portfolio_dynamic_{_date.today()}.png"
+    plt.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"\nChart saved to {out}")
     plt.close()
 
 
