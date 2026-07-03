@@ -42,3 +42,33 @@ def test_ma_params_are_valid():
     from tools.portfolio import DEFAULT_PORTFOLIO
     for ticker, cfg in DEFAULT_PORTFOLIO.items():
         assert 0 < cfg["ma_fast"] < cfg["ma_slow"], f"{ticker}: fast must be < slow"
+
+
+def test_resolve_signal_params_checks_portfolio_first():
+    from core.portfolio_config import PORTFOLIO, resolve_signal_params
+
+    ticker = next(iter(PORTFOLIO))
+    assert resolve_signal_params(ticker) == PORTFOLIO[ticker]
+
+
+def test_resolve_signal_params_falls_back_to_candidates():
+    from core.portfolio_config import CANDIDATE_SIGNALS, PORTFOLIO, resolve_signal_params
+
+    ticker = next(iter(CANDIDATE_SIGNALS))
+    assert ticker not in PORTFOLIO, "test needs a candidate ticker not already live"
+    assert resolve_signal_params(ticker) == CANDIDATE_SIGNALS[ticker]
+
+
+def test_resolve_signal_params_falls_back_to_default():
+    from core.portfolio_config import (CANDIDATE_SIGNALS, DEFAULT_SIGNAL,
+                                        PORTFOLIO, resolve_signal_params)
+
+    unknown = "ZZZZ_NOT_A_REAL_TICKER"
+    assert unknown not in PORTFOLIO and unknown not in CANDIDATE_SIGNALS
+    assert resolve_signal_params(unknown) == DEFAULT_SIGNAL
+
+
+def test_candidate_signals_have_valid_ma_windows():
+    from core.portfolio_config import CANDIDATE_SIGNALS
+    for ticker, cfg in CANDIDATE_SIGNALS.items():
+        assert 0 < cfg["ma_fast"] < cfg["ma_slow"], f"{ticker}: fast must be < slow"
