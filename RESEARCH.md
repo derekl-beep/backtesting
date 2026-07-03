@@ -7,6 +7,103 @@ Use this before re-testing an idea — it may already have been tried.
 
 ## ETF candidates
 
+### SMH (semiconductors) — strong momentum alpha, blocked by drawdown constraint, 2026-07-03
+
+**What:** Screened SMH/SOXX (semiconductor sector ETFs) alongside factor ETFs (MTUM, QUAL,
+USMV) and sector ETFs (XLK, XLE, XLF, XLV) as untested momentum candidates.
+
+**Screener result (MA50/100 baseline, 2016–2026):** SMH showed the largest alpha of any
+ETF tested to date — B&H CAGR 35.8%, strategy CAGR 58.2%, **alpha +22.3%, Sharpe 1.10**
+(exceeds SPMO's own 0.94). SOXX nearly identical (+19.3% alpha, 0.99 correlation to SMH —
+redundant, pick one). Correlation to SPMO: **0.76** — meaningfully lower than QQQ (0.88) or
+MTUM (0.91), i.e. real diversification potential if it clears validation.
+
+**Optimize result:** `tools.optimize SMH` only produces per-fold data through 2022 — 2023,
+2024, 2025 silently disappear from the table with no error. Root cause (confirmed by
+reproducing `_run_params` directly): the optimizer's training window is *expanding*
+(2016 → test_year−1), and SMH's training set crosses a real -60% drawdown once the 2022
+chip-sector crash enters it. Because `max_dd` is measured over the whole growing window,
+every fold from 2023 onward inherits a training-set max_dd beyond `MAX_DRAWDOWN_LIMIT`
+(-50%), so *zero* of the 15 MA combos ever pass the constraint again — for any future year,
+permanently. This isn't a math bug (the -50% hard limit is doing exactly what it's supposed
+to), but the tool gives no indication why folds vanish; see the tool-improvement note below.
+
+**Does a filter fix the drawdown?** `tools.compare SMH` — tried MA+RSI, MA+MACD, MA+cash
+(0x on bearish), MA+SH hedge. None bring MaxDD under -50% (range: -58.8% to -66.4%, vs
+SMH's own unleveraged B&H MaxDD of -45.3%). The 2x margin overlay itself is what pushes the
+2022 crash past the limit, not a lag in the exit signal — even instant-cash-on-bearish still
+breaches it.
+
+**Conclusion:** SMH has genuinely strong, real (not overfit) momentum alpha and a better
+Sharpe than SPMO, but is incompatible with this strategy's 2x margin engine at the risk
+tolerance currently configured (`MAX_DRAWDOWN_LIMIT = -50%`). **Not rejected outright** —
+worth a follow-up test at **1x (no margin)** allocation, since SMH's own volatility may
+already provide enough torque without leverage on top. Revisit via a portfolio slot that
+holds SMH unleveraged, separate from the SPMO/GLD margin legs.
+
+**Tool gap found:** `tools/optimize.py::_run_params` silently swallows exceptions and
+`_sweep_folds` silently drops any fold where zero combos pass constraints — a ticker with
+one bad historical crash goes quietly "unoptimizable" from that point forward with no
+message, easy to mistake for "not enough data." Should print an explicit
+`"N/8 folds: no combo passed max_dd constraint"` line instead of just omitting rows.
+
+### MTUM and XLK — validated alpha, too correlated to add, 2026-07-03
+
+**MTUM** (iShares MSCI USA Momentum Factor ETF — a live momentum-factor fund, direct
+comparison point for this strategy): `tools.optimize MTUM` → MA30/50, 3/8 folds, avg CAGR
+31.7%, avg vs B&H **+13.3%**. Real OOS-validated alpha.
+
+**XLK** (Technology Select Sector SPDR): `tools.optimize XLK` → MA10/100, 5/8 folds, avg
+CAGR 35.8%, avg vs B&H **+16.5%**. Also real OOS-validated alpha.
+
+**Why not added:** Correlation to SPMO is 0.91 (MTUM) and 0.85 (XLK) — both move in
+lockstep with the existing SPMO leg. Same conclusion as the existing QQQ entry below:
+genuine alpha, but adding either would concentrate the equity-momentum bet further rather
+than diversify it.
+
+**Conclusion:** Rejected for the current portfolio for the same reason as QQQ. Revisit only
+if SPMO is being replaced rather than supplemented.
+
+### QUAL, USMV, XLE, XLF, XLV — rejected at screener, 2026-07-03
+
+Screened alongside MTUM/XLK. All showed flat-to-negative alpha at MA50/100 baseline
+(QUAL +2.2%, USMV -0.0%, XLE -5.1%, XLF -0.9%, XLV -6.8%) with Sharpe ≤0.66. Consistent
+with the existing EWJ/EEM/TLT/VGT findings: defensive-factor (USMV), value/cyclical-sector
+(XLE, XLF), and non-trending (XLV) exposures don't suit an MA-crossover momentum signal.
+Optimization not run — screener alpha this weak has never survived OOS validation for any
+prior candidate.
+
+**Conclusion:** Confirmed the established pattern. No further testing needed unless a
+different (non-MA-crossover) signal family is introduced — see Roadmap.
+
+### Leveraged ETF rotation (TQQQ / UPRO / SOXL) — tested and rejected, 2026-07-03
+
+Closes Roadmap idea #3 ("Leveraged ETF rotation"), previously flagged but never tested.
+
+**What:** Ran `tools.screen` and `tools.optimize` directly on TQQQ (3x QQQ), UPRO (3x SPY),
+and SOXL (3x semiconductors) to see if holding them unleveraged (1x, no margin) when bullish
+could substitute for this strategy's 2x margin overlay on single-leverage ETFs, avoiding
+margin/borrow cost entirely.
+
+**Screener result (MA50/100 baseline):** all three show strongly *negative* alpha vs their
+own buy & hold — TQQQ -21.7%, UPRO -18.3%, SOXL **-40.8%** — despite (or because of) huge
+absolute returns (SOXL B&H CAGR 57.4%). Classic leveraged-ETF volatility decay: daily
+rebalancing inside the fund erodes returns on choppy/whipsaw price action that a slow MA
+crossover can't get in and out of fast enough to avoid.
+
+**Optimize result:** none of the 15 MA combos pass the -50% drawdown constraint for TQQQ or
+UPRO even in the very first OOS fold (2018) — MaxDD ranges -53% to -74% in that fold alone.
+SOXL fails constraints across its entire history ("No results passed constraints").
+
+**Conclusion:** Rejected. A slow MA-crossover trigger is fundamentally incompatible with
+3x-leveraged instruments — the whipsaw cost compounds with the fund's own daily-rebalance
+decay. Confirms and extends the existing SPXL/TQQQ finding below (that one tested them as
+*additional legs on top of* 2x margin; this one tests them as a full *replacement* for
+margin, and the result is the same: leveraged ETFs don't pair with this signal family at
+any exposure level). Roadmap item #3 can be closed as tested-and-rejected.
+
+---
+
 ### SPXL and TQQQ — rejected 2026-07-01
 
 **What:** Tested adding SPXL (3x S&P500) and TQQQ (3x QQQ) at 5% each, reducing SPMO from 80% to 70%.

@@ -300,10 +300,13 @@ against the position. Collects income during choppy mid-regime legs (identified 
 backtest: 2020–2022 Legs 2/4, 2023–2025 Leg 1 all negative). Risk: caps upside if SPMO
 rips past the short strike. Backtest: monthly short call overlay on the margin equity curve.
 
-**3. Leveraged ETF rotation (TQQQ / UPRO)** — when SPMO is bullish, hold TQQQ (3x QQQ) or
-UPRO (3x SPY) instead of 2x margin. No borrow cost, no margin call risk. Volatility decay hurts
-in choppy markets. Backtest: compare TQQQ/UPRO hold-when-bullish vs current 2x margin strategy
-across all regimes; measure vol-decay drag in sideways years (2021, 2023).
+**3. Leveraged ETF rotation (TQQQ / UPRO) — tested and rejected, 2026-07-03.** Ran
+`tools.screen`/`tools.optimize` directly on TQQQ/UPRO/SOXL: all show strongly negative alpha
+vs their own B&H at baseline (-18% to -41%), and none pass the -50% drawdown constraint even
+in the first OOS fold (2018 alone produces -53% to -74% MaxDD). Volatility decay from daily
+fund rebalancing is fundamentally incompatible with a slow MA-crossover trigger at any
+exposure level. See RESEARCH.md for details. Closed — do not revisit without a materially
+different (faster/adaptive) signal.
 
 **4. Diagonal spread (poor man's covered call)** — buy deep ITM LEAPS (Δ~0.85, 12–18 month
 expiry) as a stock replacement, sell near-term OTM calls monthly against it. LEAPS provide
