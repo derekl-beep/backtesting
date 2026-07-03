@@ -418,10 +418,54 @@ Sweet spot: **combined at 3–5% overlay.** Lifts CAGR +6–8% over margin-only 
 
 **Practical approach:** start Conservative (7%, max Sharpe), scale toward Moderate (15%) after 3+ live regimes confirm live-trading accuracy of the model.
 
+### New underlyings for the call overlay: GLD rejected, SMH works — 2026-07-03
+
+Tested whether the rolling call-overlay pattern (validated for SPMO signal → QQQ calls)
+transfers to other bullish-regime signals: a ticker's own signal driving calls on itself,
+rather than the SPMO→QQQ signal-transfer trick. Used `simulate_regime_with_rolls` directly
+at ATM (Δ0.50), 3% budget, same rolling/30-DTE-roll methodology as the shipped tool.
+
+**Baseline refresh (SPMO signal → QQQ calls, current data through 2026-07-02):** 9/9 regimes
+profitable (100% win rate), median RoP +52%, worst regime still +12% (the Feb 2022 7-day
+whipsaw). Confirms the existing finding holds with fresh data — no decay in the edge.
+
+**GLD signal (MA20/100) → GLD calls, IV proxy = `^GVZ` (Cboe Gold ETF Volatility Index, the
+correct gold-specific implied-vol series — using `^VIX` here would have been a methodology
+error, VIX prices S&P500 options, not gold). **Rejected.** Win rate 4/13 (31%), median RoP
+**-55%**, worst -95%. GLD's own MA crossover produces many short regimes (22-173 days,
+several under 2 months) relative to the 180-day tenor — each failed regime bleeds most of
+the premium to time decay before the underlying makes a real move. The one long 2023–2026
+regime (+198% RoP) rescues the average but the median is deeply negative. Unlike SPMO→QQQ,
+GLD's signal does not transfer to a long-call structure. Answers open question #3 below.
+
+**SMH signal (MA50/100) → SMH calls, IV proxy = trailing 21-day realized vol (no listed
+gold-style vol index for semiconductors, so realized vol is used directly as a conservative
+stand-in — likely *understates* true IV, since options typically carry a premium over
+realized, so real-world RoP would run somewhat lower than shown here). **Works.** Win rate
+7/11 (64%), median RoP **+82%** — actually higher than the SPMO baseline. Stress-tested with
+an IV shock (options priced above realized vol, same robustness check used for the SPMO/QQQ
+finding): still 6/11 (55%) win rate and +29% median RoP at a conservative +40% shock.
+
+**Why this matters:** SMH was rejected from the margin engine (see ETF candidates section
+above) because 2x leverage pushes its 2022 crash past the -50% drawdown constraint — but a
+long call's downside is capped at the premium paid, so it can capture SMH's real momentum
+edge (established earlier: Sharpe 1.10, the best of any ticker tested) **without** the
+unbounded-drawdown problem that blocks margin. This is a legitimate path to adding SMH's
+edge to the strategy as a bounded-risk satellite options position, separate from the
+margin-based SPMO/GLD legs. Not yet sized or added to any tool — this is exploratory
+confirmation that the idea works, not a recommendation to deploy a specific budget yet.
+
+**Caveat:** realized-vol-as-IV-proxy is a bigger approximation for SMH than `^VIX`-for-QQQ
+or `^GVZ`-for-GLD (both are actual listed implied-vol indices; SMH's isn't). Real SMH option
+premiums would likely run higher than modeled here, which the +20%/+40% IV shock runs partly
+address, but a live paper-trade check against real quoted SMH option prices would be the
+real validation before sizing real capital.
+
 ### Open questions for next session
 
 1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
 2. **Entry filter:** enter on regime flip always, or wait N days / filter by VIX level? High-VIX entries had the best returns (2020, 2025) — filtering them out would be wrong.
-3. **GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.
+3. ~~**GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.~~ **Done, 2026-07-03 — rejected.** See above: GLD's signal produces too many short whipsaw regimes for a 180-day call to survive.
 4. **Real execution:** Futu HK options access, contract costs, margin treatment of long calls. Need to verify before committing capital.
 5. **Kelly revisit:** once 20+ regimes have accumulated (live + historical), rerun `tools.sizing` — Kelly will become a reliable cross-check on the Calmar-derived sizes.
+6. **SMH options sizing:** now that SMH signal→SMH calls is validated as working (win rate 64%, median RoP +82%, survives IV stress), size a budget for it the same way `tools.sizing` does for the SPMO/QQQ overlay, and decide whether it becomes a standalone satellite position or gets folded into the existing options tooling as a second signal source. Needs a real (not realized-vol-proxy) IV check first — see caveat above.
