@@ -333,20 +333,36 @@ def simulate_regime_with_rolls(entry_date, exit_date, qqq_prices, vix_prices,
 # Full backtest
 # ---------------------------------------------------------------------------
 
-def _fetch_all():
-    """Fetch and return all shared price series (cached after first call)."""
+def _fetch_all(ticker=None):
+    """
+    Fetch and return all shared price series (cached after first call) for
+    `ticker`'s overlay: the shipped SPMO -> QQQ cross-ticker overlay by
+    default (ticker=None or SIGNAL_TICKER), or `ticker`'s own signal -> own
+    calls for any other ticker. Same 4-tuple shape either way so every
+    existing `signal_prices, call_prices, iv_prices, signal = _fetch_all()`
+    call site keeps working unchanged.
+    """
     from signals import ma as sig_ma
-    spmo = fetch(SIGNAL_TICKER)
-    qqq  = fetch(CALL_TICKER)
-    vix  = fetch(IV_TICKER)
-    cfg  = PORTFOLIO[SIGNAL_TICKER]
-    signal = sig_ma.signal(spmo, cfg["ma_fast"], cfg["ma_slow"])
-    return spmo, qqq, vix, signal
+    ticker = ticker or SIGNAL_TICKER
+    if ticker == SIGNAL_TICKER:
+        signal_prices = fetch(SIGNAL_TICKER)
+        call_prices   = fetch(CALL_TICKER)
+        iv_prices     = fetch(IV_TICKER)
+        cfg           = PORTFOLIO[SIGNAL_TICKER]
+    else:
+        from core.portfolio_config import resolve_signal_params
+        from tools.options_common import iv_proxy_series
+        signal_prices = fetch(ticker)
+        call_prices   = signal_prices
+        cfg           = resolve_signal_params(ticker)
+        iv_prices     = iv_proxy_series(ticker, signal_prices)
+    signal = sig_ma.signal(signal_prices, cfg["ma_fast"], cfg["ma_slow"])
+    return signal_prices, call_prices, iv_prices, signal
 
 
-def run(target_delta=0.50, budget_frac=0.03, capital=100_000, iv_shock=0.0,
-        roll_dte=ROLL_DTE):
-    spmo, qqq, vix, signal = _fetch_all()
+def run(ticker=None, target_delta=0.50, budget_frac=0.03, capital=100_000,
+        iv_shock=0.0, roll_dte=ROLL_DTE):
+    spmo, qqq, vix, signal = _fetch_all(ticker)
     regimes = _get_regimes(signal)
 
     results = []
@@ -530,25 +546,31 @@ def _plot_combined(margin_equity, overlay_equity, target_delta, budget_frac):
 # Display
 # ---------------------------------------------------------------------------
 
-def _print_results(results, target_delta, budget_frac, iv_shock):
+def _print_results(results, target_delta, budget_frac, iv_shock, ticker=None):
+    from core.portfolio_config import resolve_signal_params
+
+    ticker = ticker or SIGNAL_TICKER
+    call_ticker = CALL_TICKER if ticker == SIGNAL_TICKER else ticker
+    cfg = resolve_signal_params(ticker)
+
     shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
-    cfg = PORTFOLIO[SIGNAL_TICKER]
     print(f"\n{'='*80}")
-    print(f"  QQQ Call Backtest — Δ{target_delta:.2f} strike, "
+    print(f"  {call_ticker} Call Backtest — Δ{target_delta:.2f} strike, "
           f"{budget_frac:.0%} budget/regime, roll at {ROLL_DTE} DTE{shock_str}")
-    print(f"  Signal source: SPMO MA{cfg['ma_fast']}/{cfg['ma_slow']}")
+    print(f"  Signal source: {ticker} MA{cfg['ma_fast']}/{cfg['ma_slow']}")
     print(f"{'='*80}")
 
     # rolling results have n_legs; single-leg results don't
     has_legs = any(r.get("n_legs", 1) > 1 for r in results)
+    ret_col = f"{call_ticker} ret"
 
     if has_legs:
         col = "{:<12} {:<12} {:>5} {:>8} {:>6} {:>10} {:>9} {:>7}"
-        header = col.format("Entry", "Exit", "Days", "QQQ ret", "Legs",
+        header = col.format("Entry", "Exit", "Days", ret_col, "Legs",
                             "Prem $", "P&L $", "RoP")
     else:
         col = "{:<12} {:<12} {:>5} {:>8} {:>7} {:>7} {:>8} {:>9} {:>7}"
-        header = col.format("Entry", "Exit", "Days", "QQQ ret", "VIX",
+        header = col.format("Entry", "Exit", "Days", ret_col, "VIX",
                             "Strike", "Prem $", "P&L $", "RoP")
 
     print(f"\n  {header}")
@@ -600,9 +622,11 @@ def _print_results(results, target_delta, budget_frac, iv_shock):
     print(f"  * = lost >50% of premium")
 
 
-def _plot(results_by_delta, budget_frac, iv_shock):
+def _plot(results_by_delta, budget_frac, iv_shock, ticker=None):
     if not results_by_delta:
         return
+    ticker = ticker or SIGNAL_TICKER
+    call_ticker = CALL_TICKER if ticker == SIGNAL_TICKER else ticker
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -644,7 +668,7 @@ def _plot(results_by_delta, budget_frac, iv_shock):
     ax2.legend()
     ax2.grid(alpha=0.3)
 
-    fig.suptitle(f"QQQ Call Overlay — SPMO Signal, {budget_frac:.0%} budget/regime",
+    fig.suptitle(f"{call_ticker} Call Overlay — {ticker} Signal, {budget_frac:.0%} budget/regime",
                  fontsize=11)
     plt.tight_layout()
     CHART_DIR.mkdir(exist_ok=True)
@@ -824,14 +848,14 @@ def _plot_sweep(margin_eq, sweep_rows, target_delta, capital):
 # Options-only backtest (no margin leg)
 # ---------------------------------------------------------------------------
 
-def options_only_backtest(target_delta=0.50, budget_frac=0.10, capital=100_000,
-                          iv_shock=0.0, roll_dte=ROLL_DTE):
+def options_only_backtest(ticker=None, target_delta=0.50, budget_frac=0.10,
+                          capital=100_000, iv_shock=0.0, roll_dte=ROLL_DTE):
     """
     Pure options strategy: capital sits in cash (earning T-bill rate) between
-    regimes and between rolls. On each SPMO bull flip, spend budget_frac of
-    current cash on QQQ calls. Roll at roll_dte DTE. No margin leg at all.
+    regimes and between rolls. On each bull flip, spend budget_frac of
+    current cash on calls. Roll at roll_dte DTE. No margin leg at all.
     """
-    spmo, qqq, vix, signal = _fetch_all()
+    spmo, qqq, vix, signal = _fetch_all(ticker)
     regimes = _get_regimes(signal)
     all_dates = qqq.index
     daily_cash_rate = RISK_FREE_RATE / 252
@@ -933,8 +957,16 @@ def _print_yearly(equity, benchmark_dict: dict, label: str = "Strategy"):
         print(row)
 
 
-def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock):
+def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock,
+                        ticker=None):
     from core.metrics import calc
+    from core.portfolio_config import resolve_signal_params
+
+    ticker = ticker or SIGNAL_TICKER
+    call_ticker = CALL_TICKER if ticker == SIGNAL_TICKER else ticker
+    cfg = resolve_signal_params(ticker)
+    label = f"{call_ticker} Δ{target_delta:.2f}"
+    signal_desc = f"{ticker} MA{cfg['ma_fast']}/{cfg['ma_slow']}"
 
     m = calc(equity)
     total_return = equity.iloc[-1] / capital - 1
@@ -945,14 +977,13 @@ def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_s
 
     shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
     print(f"\n{'='*80}")
-    print(f"  Options-only backtest — QQQ Δ{target_delta:.2f}, {budget_frac:.0%}/regime{shock_str}")
-    print(f"  Signal: SPMO MA{PORTFOLIO[SIGNAL_TICKER]['ma_fast']}/"
-          f"{PORTFOLIO[SIGNAL_TICKER]['ma_slow']}  |  "
+    print(f"  Options-only backtest — {label}, {budget_frac:.0%}/regime{shock_str}")
+    print(f"  Signal: {signal_desc}  |  "
           f"Cash earns T-bill rate ({RISK_FREE_RATE:.1%}/yr) between regimes")
     print(f"{'='*80}")
 
     col = "{:<12} {:<12} {:>5} {:>8} {:>6} {:>10} {:>9} {:>9} {:>10}"
-    header = col.format("Entry", "Exit", "Days", "QQQ ret", "Legs",
+    header = col.format("Entry", "Exit", "Days", f"{call_ticker} ret", "Legs",
                         "Prem $", "P&L $", "RoP", "Cash after")
     print(f"\n  {header}")
     print(f"  {'-'*len(header)}")
@@ -980,20 +1011,23 @@ def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_s
     print(f"  Total premium:      ${total_prem:,.0f}")
     print(f"  Net option P&L:     ${total_pnl:+,.0f}  ({total_pnl/total_prem:+.0%} on premium)")
 
-    # year-by-year vs QQQ B&H
-    qqq = fetch(CALL_TICKER)
-    bah = capital * qqq / qqq.iloc[0]
+    # year-by-year vs the call vehicle's own B&H
+    call_prices = fetch(call_ticker)
+    bah = capital * call_prices / call_prices.iloc[0]
     bah = bah.reindex(equity.index).ffill()
-    _print_yearly(equity, {"QQQ B&H": bah}, label="Options-only")
+    _print_yearly(equity, {f"{call_ticker} B&H": bah}, label="Options-only")
 
 
-def _plot_options_only(equity, capital, target_delta, budget_frac):
+def _plot_options_only(equity, capital, target_delta, budget_frac, ticker=None):
     from core.metrics import calc
 
-    # QQQ buy-and-hold benchmark over same period
-    qqq = fetch(CALL_TICKER)
-    qqq = qqq.reindex(equity.index).dropna()
-    bah = capital * qqq / qqq.iloc[0]
+    ticker = ticker or SIGNAL_TICKER
+    call_ticker = CALL_TICKER if ticker == SIGNAL_TICKER else ticker
+
+    # call vehicle's own buy-and-hold benchmark over same period
+    call_prices = fetch(call_ticker)
+    call_prices = call_prices.reindex(equity.index).dropna()
+    bah = capital * call_prices / call_prices.iloc[0]
     bah = bah.reindex(equity.index).ffill()
 
     # T-bill only (pure cash, no options) — shows option contribution vs doing nothing
@@ -1013,11 +1047,11 @@ def _plot_options_only(equity, capital, target_delta, budget_frac):
     ax.plot(equity.index, equity.values, color="darkorange", lw=1.8,
             label=f"Options only  CAGR {m_opt['cagr']:.1%}, Sharpe {m_opt['sharpe']:.2f}")
     ax.plot(bah.index, bah.values, color="steelblue", lw=1.5, alpha=0.8,
-            label=f"QQQ B&H  CAGR {m_bah['cagr']:.1%}")
+            label=f"{call_ticker} B&H  CAGR {m_bah['cagr']:.1%}")
     ax.plot(cash_only.index, cash_only.values, color="gray", lw=1, linestyle="--",
             label=f"T-bill cash  ({RISK_FREE_RATE:.1%}/yr)")
-    ax.set_title(f"Options-only strategy — QQQ Δ{target_delta:.2f} calls, "
-                 f"{budget_frac:.0%} budget per SPMO bull regime")
+    ax.set_title(f"Options-only strategy — {call_ticker} Δ{target_delta:.2f} calls, "
+                 f"{budget_frac:.0%} budget per {ticker} bull regime")
     ax.set_ylabel("Portfolio value ($)")
     ax.legend()
     ax.grid(alpha=0.3)
@@ -1040,14 +1074,19 @@ def _plot_options_only(equity, capital, target_delta, budget_frac):
     print(f"\n  Chart saved to {out}")
 
 
-def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dte=ROLL_DTE):
+def options_only_sweep(ticker=None, target_delta=0.50, capital=100_000, iv_shock=0.0,
+                       roll_dte=ROLL_DTE):
     """Sweep budget fractions for the options-only strategy."""
     from core.metrics import calc
 
-    qqq = fetch(CALL_TICKER)
+    ticker = ticker or SIGNAL_TICKER
+    call_ticker = CALL_TICKER if ticker == SIGNAL_TICKER else ticker
+    qqq = fetch(call_ticker)
     rows = []
     for bf in SWEEP_BUDGETS:
-        eq, events = options_only_backtest(target_delta, bf, capital, iv_shock, roll_dte)
+        eq, events = options_only_backtest(ticker=ticker, target_delta=target_delta,
+                                            budget_frac=bf, capital=capital,
+                                            iv_shock=iv_shock, roll_dte=roll_dte)
         m = calc(eq)
         total_pnl  = sum(e["pnl"] for e in events)
         total_prem = sum(e["premium_paid"] for e in events)
@@ -1072,8 +1111,8 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
 
     shock_str = f"  [IV shock: {iv_shock:+.0%}]" if iv_shock else ""
     print(f"\n{'='*85}")
-    print(f"  Options-only budget sweep — QQQ Δ{target_delta:.2f} calls{shock_str}")
-    print(f"  QQQ B&H benchmark: CAGR {bah_m['cagr']:.1%}, "
+    print(f"  Options-only budget sweep — {call_ticker} Δ{target_delta:.2f} calls{shock_str}")
+    print(f"  {call_ticker} B&H benchmark: CAGR {bah_m['cagr']:.1%}, "
           f"Sharpe {bah_m['sharpe']:.2f}, MaxDD {bah_m['max_dd']:.1%}")
     print(f"{'='*85}")
 
@@ -1094,10 +1133,11 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
             f"{r['win_rate']:.0%}",
         ))
 
-    # fetch SPMO for signal panel
+    # fetch the signal ticker for the signal panel
     from signals import ma as sig_ma
-    spmo = fetch(SIGNAL_TICKER)
-    cfg  = PORTFOLIO[SIGNAL_TICKER]
+    from core.portfolio_config import resolve_signal_params
+    spmo = fetch(ticker)
+    cfg  = resolve_signal_params(ticker)
     spmo_signal = sig_ma.signal(spmo, cfg["ma_fast"], cfg["ma_slow"])
     ma_fast_s = spmo.rolling(cfg["ma_fast"]).mean()
     ma_slow_s = spmo.rolling(cfg["ma_slow"]).mean()
@@ -1112,7 +1152,7 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
     ax = axes[0]
     colors = plt.cm.viridis(np.linspace(0.15, 0.85, len(rows)))
     ax.plot(bah.index, bah.values, color="steelblue", lw=2,
-            label=f"QQQ B&H  CAGR {bah_m['cagr']:.1%}")
+            label=f"{call_ticker} B&H  CAGR {bah_m['cagr']:.1%}")
     for i, r in enumerate(rows):
         ax.plot(r["equity"].index, r["equity"].values, color=colors[i], lw=1.2,
                 label=f"{r['budget_frac']:.0%}  CAGR {r['cagr']:.1%}")
@@ -1122,18 +1162,18 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
         ax.axvspan(pd.Timestamp(start), pd.Timestamp(end),
                    alpha=0.07, color="green", linewidth=0)
 
-    ax.set_title(f"Options-only — QQQ Δ{target_delta:.2f}, budget sweep vs QQQ B&H\n"
-                 f"(green shading = SPMO bull regime, calls active)")
+    ax.set_title(f"Options-only — {call_ticker} Δ{target_delta:.2f}, budget sweep vs "
+                 f"{call_ticker} B&H\n(green shading = {ticker} bull regime, calls active)")
     ax.set_ylabel("Portfolio value ($)")
     ax.legend(fontsize=8, ncol=2)
     ax.grid(alpha=0.3)
     ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"${x:,.0f}"))
 
-    # --- bottom: SPMO price + MAs + regime shading ---
+    # --- bottom: signal-ticker price + MAs + regime shading ---
     ax2 = axes[1]
     common = spmo.index.intersection(eq0.index)
     ax2.plot(common, spmo.reindex(common).values,
-             color="black", lw=1.2, label="SPMO price")
+             color="black", lw=1.2, label=f"{ticker} price")
     ax2.plot(common, ma_fast_s.reindex(common).values,
              color="darkorange", lw=1, linestyle="--",
              label=f"MA{cfg['ma_fast']}")
@@ -1145,8 +1185,8 @@ def options_only_sweep(target_delta=0.50, capital=100_000, iv_shock=0.0, roll_dt
         ax2.axvspan(pd.Timestamp(start), pd.Timestamp(end),
                     alpha=0.15, color="green", linewidth=0)
 
-    ax2.set_ylabel("SPMO price ($)")
-    ax2.set_title(f"SPMO signal (MA{cfg['ma_fast']}/{cfg['ma_slow']}) — "
+    ax2.set_ylabel(f"{ticker} price ($)")
+    ax2.set_title(f"{ticker} signal (MA{cfg['ma_fast']}/{cfg['ma_slow']}) — "
                   f"green = bull regime (calls active)")
     ax2.legend(fontsize=8, loc="upper left")
     ax2.grid(alpha=0.3)
@@ -1256,6 +1296,7 @@ def strategy_compare(target_delta=0.50, budget_frac=0.03, capital=100_000,
 
 def _parse_args():
     args = sys.argv[1:]
+    ticker       = None
     delta        = 0.50
     budget       = 0.05   # 5% is the research sweet spot (best Sharpe, see sizing tool)
     shock        = 0.0
@@ -1266,7 +1307,9 @@ def _parse_args():
     compare      = False
     i = 0
     while i < len(args):
-        if args[i] == "--delta" and i + 1 < len(args):
+        if args[i] == "--ticker" and i + 1 < len(args):
+            ticker = args[i + 1].upper(); i += 2
+        elif args[i] == "--delta" and i + 1 < len(args):
             delta = float(args[i + 1]); i += 2
         elif args[i] == "--budget" and i + 1 < len(args):
             budget = float(args[i + 1]); i += 2
@@ -1284,12 +1327,23 @@ def _parse_args():
             compare = True; i += 1
         else:
             i += 1
-    return delta, budget, shock, roll, combined, sweep, options_only, compare
+    return ticker, delta, budget, shock, roll, combined, sweep, options_only, compare
 
 
 if __name__ == "__main__":
-    target_delta, budget_frac, iv_shock, roll_dte, show_combined, show_sweep, show_options_only, show_compare = _parse_args()
+    (ticker, target_delta, budget_frac, iv_shock, roll_dte, show_combined, show_sweep,
+     show_options_only, show_compare) = _parse_args()
     capital = 100_000
+
+    # --combined/--compare, and --sweep without --options-only, aren't generalized to
+    # an arbitrary ticker yet -- use tools.portfolio_combined / tools.sizing --ticker /
+    # tools.options_sensitivity for the equivalent analysis on a non-default ticker.
+    if ticker and (show_combined or show_compare or (show_sweep and not show_options_only)):
+        print("--ticker is only supported for the default report and --options-only "
+              "(with or without --sweep). For --combined use tools.portfolio_combined, "
+              "for --sweep use tools.sizing --ticker, for --compare there is no "
+              "generalized equivalent yet.")
+        sys.exit(1)
 
     if show_compare:
         strategy_compare(target_delta=target_delta, budget_frac=budget_frac,
@@ -1297,15 +1351,16 @@ if __name__ == "__main__":
 
     elif show_options_only:
         if show_sweep:
-            options_only_sweep(target_delta=target_delta, capital=capital,
+            options_only_sweep(ticker=ticker, target_delta=target_delta, capital=capital,
                                iv_shock=iv_shock, roll_dte=roll_dte)
         else:
             equity, events = options_only_backtest(
-                target_delta=target_delta, budget_frac=budget_frac,
+                ticker=ticker, target_delta=target_delta, budget_frac=budget_frac,
                 capital=capital, iv_shock=iv_shock, roll_dte=roll_dte,
             )
-            _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock)
-            _plot_options_only(equity, capital, target_delta, budget_frac)
+            _print_options_only(equity, events, capital, target_delta, budget_frac,
+                                iv_shock, ticker=ticker)
+            _plot_options_only(equity, capital, target_delta, budget_frac, ticker=ticker)
 
     elif show_sweep:
         print(f"  Sweeping budget fractions for QQQ Δ{target_delta:.2f} calls "
@@ -1329,20 +1384,20 @@ if __name__ == "__main__":
         all_deltas = [0.85, 0.50, 0.30]
         results_by_delta = {}
         for d in all_deltas:
-            rows = run(target_delta=d, budget_frac=budget_frac,
+            rows = run(ticker=ticker, target_delta=d, budget_frac=budget_frac,
                        capital=capital, iv_shock=iv_shock, roll_dte=roll_dte)
             results_by_delta[d] = rows
 
         for d in all_deltas:
-            _print_results(results_by_delta[d], d, budget_frac, iv_shock)
+            _print_results(results_by_delta[d], d, budget_frac, iv_shock, ticker=ticker)
 
-        _plot(results_by_delta, budget_frac, iv_shock)
+        _plot(results_by_delta, budget_frac, iv_shock, ticker=ticker)
 
         if iv_shock == 0.0:
             print(f"\n{'─'*60}")
             print("  IV sensitivity: rerunning with +20% IV shock at entry")
             print(f"{'─'*60}")
             for d in all_deltas:
-                rows_shocked = run(target_delta=d, budget_frac=budget_frac,
+                rows_shocked = run(ticker=ticker, target_delta=d, budget_frac=budget_frac,
                                    capital=capital, iv_shock=0.20, roll_dte=roll_dte)
-                _print_results(rows_shocked, d, budget_frac, iv_shock=0.20)
+                _print_results(rows_shocked, d, budget_frac, iv_shock=0.20, ticker=ticker)

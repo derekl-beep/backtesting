@@ -138,9 +138,15 @@ python -m tools.options_backtest --options-only    # options-only strategy (no m
 python -m tools.options_backtest --compare         # all three strategies side-by-side
 python -m tools.options_backtest --sweep           # budget fraction sweep table + chart
 python -m tools.options_backtest --delta 0.30 --budget 0.05
+python -m tools.options_backtest --ticker SMH                    # SMH signal -> SMH calls
+python -m tools.options_backtest --options-only --ticker SMH     # + sweep also supported
 ```
 Signal: SPMO MA10/200. Instrument: QQQ calls. Model: rolling at 30 DTE, ATM Δ0.50 default.
 Default budget: **5%** (research sweet spot — best Sharpe, Calmar improves over margin-only).
+`--ticker` (any ticker's own signal -> own calls) works with the default report and
+`--options-only` (with or without `--sweep`). `--combined`/`--compare`/plain `--sweep` are
+still SPMO/QQQ-only — use `tools.portfolio_combined`, `tools.sizing --ticker`, and
+`tools.options_sensitivity` for the generalized equivalents.
 Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
 
 ### Validate pricing model against a real option chain
