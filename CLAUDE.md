@@ -170,6 +170,18 @@ exist per ticker — treat this as "how much to trust the point estimate," not a
 bootstrap to a 100% win-rate CI — that reflects an all-positive sample, not proof the
 strategy can't lose. See RESEARCH.md for the full readout.
 
+### Options-parameter sensitivity (delta x budget heatmap)
+```bash
+python -m tools.options_sensitivity                # default: SPMO signal -> QQQ calls
+python -m tools.options_sensitivity GLD SMH
+```
+Grids target delta (0.30-0.85) x budget fraction (1%-20%), evaluated as median RoP across
+every historical regime — the options-overlay analog of `tools.sensitivity`'s MA heatmap.
+Also splits regime history in half chronologically to flag a decaying edge. First run found
+GLD's rejection holds across the *entire* grid (not just the default point), SPMO/QQQ's edge
+has roughly halved over time (still positive), and SMH's strong number is front-loaded into
+the recent semiconductor rally. See RESEARCH.md for details.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -232,6 +244,7 @@ tools/  (ETF — master branch)
   options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
   options_chain_check.py validate the BS pricing model against a real live option chain (IV, price, spread, OI)
   options_bootstrap.py   bootstrap confidence intervals over historical regimes (win rate/RoP CI + forward projection)
+  options_sensitivity.py delta x budget heatmap + first/second-half decay check for the options overlay
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)

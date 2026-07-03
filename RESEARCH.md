@@ -559,6 +559,47 @@ the single point estimate suggested: a 90% CI on the 5-regime compounded return 
 chance of a net loss over that horizon. That's a more honest way to size conviction than
 "64% win rate, +82% median RoP" alone.
 
+### New tool: options-parameter sensitivity (delta x budget heatmap) — 2026-07-03
+
+Built `tools/options_sensitivity.py` — the third toolbox priority, mirroring
+`tools/sensitivity.py`'s plateau-vs-isolated-peak MA heatmap but for the options overlay's
+own knobs (target delta x budget fraction) instead of MA windows. The options params
+(Δ0.50, 5% budget) had only been validated via a full-history sweep, never checked for
+neighbor-robustness the way the MA signal is. Also adds a first-half-vs-second-half
+regime split as a decay check, since there's no walk-forward OOS split that makes sense for
+a risk-sizing knob (unlike MA windows, delta/budget aren't fitted to data).
+
+```
+python -m tools.options_sensitivity SPMO GLD SMH
+```
+
+**Results (median RoP across the full regime history, grid of Δ ∈ {0.30..0.85} x budget
+∈ {1%..20%}):**
+
+| Ticker | Current cell (Δ0.50/5%) | Neighbor verdict | First half | Second half |
+|---|---|---|---|---|
+| SPMO→QQQ | +45% | PLATEAU (8/8 positive) | +83% | +32% ⚠ declining |
+| GLD→GLD  | -55% | **ISOLATED (0/8 positive)** | -61% | -55% |
+| SMH→SMH  | +79% | PLATEAU (8/8 positive) | +13% | +120% |
+
+**SPMO/QQQ:** robust to delta/budget choice (whole neighborhood positive), but the edge has
+roughly halved over time — median RoP +83% in the first half of history vs +32% in the
+second half. Still solidly positive, not a rejection, but worth watching: if a future
+options_sensitivity run shows the second-half number continuing to shrink, that's the same
+kind of decay warning `tools.sensitivity`'s rolling-Sharpe check gives for the MA signal.
+
+**GLD:** this closes the door on GLD options completely — it's not that Δ0.50/5% happens to
+be a bad pick, **every cell in the entire 6x7 grid is negative**. No nearby parameter tweak
+rescues it. Reinforces the earlier rejection with the strongest possible confirmation.
+
+**SMH:** also a genuine plateau (robust to parameter choice), but the first/second-half
+split is heavily front-loaded toward recent history (+13% → +120%) — almost certainly
+reflecting the 2023-2026 AI/semiconductor rally rather than a stable, repeatable edge. Read
+the earlier +82% median RoP finding as "very good in the recent super-cycle," not as a
+number that should be extrapolated forward at the same magnitude — the bootstrap CI already
+captures some of this uncertainty, but this decay check makes the *reason* for the wide CI
+more concrete (small sample dominated by one exceptional multi-year stretch).
+
 ### Open questions for next session
 
 1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
