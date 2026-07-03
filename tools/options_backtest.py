@@ -1248,7 +1248,7 @@ def strategy_compare(target_delta=0.50, budget_frac=0.03, capital=100_000,
 def _parse_args():
     args = sys.argv[1:]
     delta        = 0.50
-    budget       = 0.10
+    budget       = 0.05   # 5% is the research sweet spot (best Sharpe, see sizing tool)
     shock        = 0.0
     roll         = ROLL_DTE
     combined     = False
