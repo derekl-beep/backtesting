@@ -102,18 +102,25 @@ def _print_comparison(current_m: dict, recommended_m: dict,
 def _apply_changes(recommended_portfolio: dict, tickers: list):
     """Write new params into core/portfolio_config.py in-place."""
     import pathlib
+    from datetime import date
 
     config_path = pathlib.Path(__file__).parent.parent / "core" / "portfolio_config.py"
+    today = date.today().isoformat()
 
     text = config_path.read_text()
     for ticker in tickers:
         cfg  = recommended_portfolio[ticker]
         fast, slow = cfg["ma_fast"], cfg["ma_slow"]
-        # Match pattern: "TICKER": dict(...ma_fast=XX, ma_slow=YY...)
+        # Match the whole "TICKER": dict(...) line, including any trailing
+        # comment, so the provenance comment gets re-stamped with today's
+        # date instead of going stale after the params it describes change.
         pattern = (
-            r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+')
-        replacement = r'\g<1>' + str(fast) + r'\g<2>' + str(slow)
-        new_text = re.sub(pattern, replacement, text)
+            r'("' + ticker + r'":\s*dict\([^)]*ma_fast=)\d+([^)]*ma_slow=)\d+'
+            r'(\)[,]?)(?:\s*#.*)?$')
+        replacement = (
+            r'\g<1>' + str(fast) + r'\g<2>' + str(slow) + r'\g<3>'
+            f'   # joint portfolio optimization {today}')
+        new_text = re.sub(pattern, replacement, text, flags=re.MULTILINE)
         if new_text == text:
             print(f"  WARNING: could not update {ticker} in core/portfolio_config.py — update manually.")
         else:

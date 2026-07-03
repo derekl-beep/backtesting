@@ -197,6 +197,17 @@ Per-leg stats + portfolio aggregate vs B&H. Default strategy: momentum_cash.
 | `MAX_DRAWDOWN_LIMIT` | -50% | Hard constraint for optimization |
 | `START` | 2016-01-01 | Historical data start date |
 
+**Margin call modeling limitation:** the simulator re-levers to the target leverage at
+every daily close before checking `MAINTENANCE_MARGIN`, so the equity ratio it evaluates
+is always a constant `1 / leverage` — at the portfolio's 2x leverage that's 50%, always
+above the 30% threshold. This means a margin call can never trigger in this model below
+~3.33x leverage, regardless of how large a single-day drawdown is (see
+`tests/test_simulator.py::test_two_x_never_triggers_margin_call`, which documents this
+deliberately). It's a reasonable simplification for a daily-close backtest, but it means
+the simulator cannot model a real broker force-liquidating an intraday flash-crash — treat
+`margin_calls == 0` in these results as "never breached at the daily close," not as proof
+that live 2x margin is free of margin-call risk.
+
 ## Project structure
 
 ```
