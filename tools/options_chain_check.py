@@ -47,6 +47,21 @@ def _model_iv(ticker: str, prices: pd.Series) -> tuple[float, str]:
     return sigma, "trailing 21-day realized vol (no listed vol index for this ticker)"
 
 
+def iv_proxy_series(ticker: str, prices: pd.Series) -> pd.Series:
+    """
+    Full time-indexed IV proxy series for `ticker` (percent scale, matching the
+    ^VIX/^GVZ convention) -- the real listed vol index if one is configured in
+    KNOWN_IV_PROXIES, otherwise a trailing 21-day realized-vol series computed
+    from `prices` itself. Shared by any tool that needs IV history (not just a
+    single as-of-today value) for a ticker with no listed vol index.
+    """
+    proxy_ticker = KNOWN_IV_PROXIES.get(ticker)
+    if proxy_ticker:
+        return fetch(proxy_ticker)
+    ret = prices.pct_change()
+    return (ret.rolling(21).std() * (252 ** 0.5) * 100).bfill()
+
+
 def _nearest_expiry(ticker: str, target_days: int):
     expiries = yf.Ticker(ticker, session=SESSION).options
     if not expiries:

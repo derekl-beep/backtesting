@@ -29,7 +29,7 @@ from tools.options_backtest import (
     SIGNAL_TICKER, CALL_TICKER, IV_TICKER, ROLL_DTE,
     _get_regimes, simulate_regime_with_rolls,
 )
-from tools.options_chain_check import KNOWN_IV_PROXIES
+from tools.options_chain_check import iv_proxy_series
 
 CAPITAL      = 100_000
 TARGET_DELTA = 0.50
@@ -50,18 +50,7 @@ def _regime_rops(ticker: str) -> list[float]:
         signal_prices = fetch(ticker)
         call_prices   = signal_prices
         cfg           = PORTFOLIO.get(ticker, DEFAULT_SIGNAL)
-        proxy_ticker  = KNOWN_IV_PROXIES.get(ticker)
-        if proxy_ticker:
-            iv_prices = fetch(proxy_ticker)
-        else:
-            # realized-vol proxy needs a full price-indexed series, not a scalar --
-            # build one the same way _model_iv would for "as of today", but here we
-            # need it for every historical date, so just reuse the price series and
-            # let simulate_regime_with_rolls's own _realized_vol fallback handle vol
-            # -- pass the price series itself as a stand-in "vix_prices" won't work
-            # (wrong units), so build a realized-vol series directly.
-            ret = signal_prices.pct_change()
-            iv_prices = (ret.rolling(21).std() * np.sqrt(252) * 100).bfill()
+        iv_prices     = iv_proxy_series(ticker, signal_prices)
 
     signal  = sig_ma.signal(signal_prices, cfg["ma_fast"], cfg["ma_slow"])
     regimes = _get_regimes(signal)

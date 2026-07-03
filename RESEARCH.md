@@ -600,6 +600,39 @@ number that should be extrapolated forward at the same magnitude — the bootstr
 captures some of this uncertainty, but this decay check makes the *reason* for the wide CI
 more concrete (small sample dominated by one exceptional multi-year stretch).
 
+### New tool: multi-overlay portfolio aggregation — 2026-07-03
+
+Built `tools/portfolio_combined.py` — the fourth and final toolbox priority. Generalizes
+`options_backtest.py --combined` (margin + exactly one overlay) to margin + **any number**
+of simultaneous options overlays sharing one capital base. Regimes from every overlay are
+merged into one chronological queue, so a later overlay's dynamic budget sizing (% of
+*current* equity) reflects P&L already realized by an earlier one — necessary now that
+there's a real second overlay candidate (SMH) alongside the shipped SPMO→QQQ one. Also
+factored the realized-vol IV-proxy logic (previously duplicated in `options_bootstrap.py`
+and `options_sensitivity.py`) into a shared `iv_proxy_series()` helper in
+`options_chain_check.py` while building this.
+
+```
+python -m tools.portfolio_combined                          # margin + shipped SPMO->QQQ overlay only
+python -m tools.portfolio_combined --add SMH:0.50:0.03       # + SMH signal -> SMH calls
+python -m tools.portfolio_combined --add SMH:0.50:0.03 --no-base
+```
+
+**Result — margin + SPMO→QQQ (5% budget) alone:** CAGR 28.0% → 30.9%, Sharpe 0.97 → 1.10,
+MaxDD -35.8% → -29.0%. Consistent with the existing single-overlay finding (numbers differ
+slightly from the original `options_backtest --combined` table because that used a 3%
+budget and less price history; direction and magnitude are consistent).
+
+**Result — margin + SPMO→QQQ + SMH→SMH (3% budget each), same capital base:** CAGR
+28.0% → **35.0%** (+7.0%, vs +2.9% for the SPMO/QQQ overlay alone), Sharpe 0.97 → **1.22**,
+MaxDD -35.8% → **-26.3%**. Adding the SMH overlay on top of the existing one improves every
+metric further — more CAGR lift, better Sharpe, and a *smaller* drawdown than either the
+margin-only baseline or the single-overlay case. This directly answers the practical
+question that motivated this whole toolbox effort ("how do we use call options to add
+leverage/edge without the margin engine's drawdown risk"): running both overlays together
+on the same account is a concrete, working way to capture SMH's edge alongside the existing
+strategy, with bounded downside on each position.
+
 ### Open questions for next session
 
 1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
@@ -607,4 +640,4 @@ more concrete (small sample dominated by one exceptional multi-year stretch).
 3. ~~**GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.~~ **Done, 2026-07-03 — rejected.** See above: GLD's signal produces too many short whipsaw regimes for a 180-day call to survive.
 4. **Real execution:** Futu HK options access, contract costs, margin treatment of long calls. Need to verify before committing capital.
 5. **Kelly revisit:** once 20+ regimes have accumulated (live + historical), rerun `tools.sizing` — Kelly will become a reliable cross-check on the Calmar-derived sizes.
-6. **SMH options sizing:** now that SMH signal→SMH calls is validated as working (win rate 64%, median RoP +82%, survives IV stress), size a budget for it the same way `tools.sizing` does for the SPMO/QQQ overlay, and decide whether it becomes a standalone satellite position or gets folded into the existing options tooling as a second signal source. Needs a real (not realized-vol-proxy) IV check first — see caveat above.
+6. ~~**SMH options sizing:** ... decide whether it becomes a standalone satellite position or gets folded into the existing options tooling as a second signal source.~~ **Partially answered, 2026-07-03** — `tools.portfolio_combined` shows it works well folded in alongside the SPMO/QQQ overlay (CAGR/Sharpe/MaxDD all improve further). Still needs: a real (not realized-vol-proxy) IV check before sizing real capital — `tools.options_chain_check SMH` is the tool for that, and its first run already flagged realized vol as directionally miscalibrated for SMH right now (see above) — and a decision on exact budget fraction, which `tools.sizing`-style analysis hasn't been run for SMH specifically yet.

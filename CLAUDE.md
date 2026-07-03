@@ -182,6 +182,19 @@ GLD's rejection holds across the *entire* grid (not just the default point), SPM
 has roughly halved over time (still positive), and SMH's strong number is front-loaded into
 the recent semiconductor rally. See RESEARCH.md for details.
 
+### Multi-overlay portfolio aggregation
+```bash
+python -m tools.portfolio_combined                       # margin + shipped SPMO->QQQ overlay only
+python -m tools.portfolio_combined --add SMH:0.50:0.03    # + SMH signal -> SMH calls
+python -m tools.portfolio_combined --add SMH:0.50:0.03 --no-base
+```
+Generalizes `options_backtest.py --combined` (margin + exactly one overlay) to margin + any
+number of simultaneous options overlays sharing one capital base — needed once there's more
+than one options position at a time. Regimes from every overlay are merged chronologically
+so a later overlay's dynamic budget sizing reflects earlier overlays' realized P&L. First
+run: margin + SPMO/QQQ + SMH/SMH together lifts CAGR 28.0%→35.0%, Sharpe 0.97→1.22, and
+*reduces* MaxDD to -26.3% (better than margin-only or either overlay alone). See RESEARCH.md.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -245,6 +258,7 @@ tools/  (ETF — master branch)
   options_chain_check.py validate the BS pricing model against a real live option chain (IV, price, spread, OI)
   options_bootstrap.py   bootstrap confidence intervals over historical regimes (win rate/RoP CI + forward projection)
   options_sensitivity.py delta x budget heatmap + first/second-half decay check for the options overlay
+  portfolio_combined.py  margin legs + N simultaneous options overlays on one shared capital base
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)

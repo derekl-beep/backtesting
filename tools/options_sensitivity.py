@@ -33,7 +33,7 @@ from tools.options_backtest import (
     SIGNAL_TICKER, CALL_TICKER, IV_TICKER, ROLL_DTE,
     _get_regimes, simulate_regime_with_rolls,
 )
-from tools.options_chain_check import KNOWN_IV_PROXIES
+from tools.options_chain_check import iv_proxy_series
 
 CHART_DIR = Path(__file__).parent.parent / "charts" / "options_sensitivity"
 CAPITAL   = 100_000
@@ -53,12 +53,7 @@ def _price_and_iv(ticker: str):
         signal_prices = fetch(ticker)
         call_prices   = signal_prices
         cfg           = PORTFOLIO.get(ticker, DEFAULT_SIGNAL)
-        proxy_ticker  = KNOWN_IV_PROXIES.get(ticker)
-        if proxy_ticker:
-            iv_prices = fetch(proxy_ticker)
-        else:
-            ret = signal_prices.pct_change()
-            iv_prices = (ret.rolling(21).std() * np.sqrt(252) * 100).bfill()
+        iv_prices     = iv_proxy_series(ticker, signal_prices)
     return signal_prices, call_prices, iv_prices, cfg
 
 
