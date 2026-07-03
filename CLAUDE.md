@@ -200,6 +200,7 @@ run: margin + SPMO/QQQ + SMH/SMH together lifts CAGR 28.0%→35.0%, Sharpe 0.97�
 python -m tools.sizing
 python -m tools.sizing --delta 0.30     # OTM calls
 python -m tools.sizing --capital 150000
+python -m tools.sizing --ticker SMH     # size the SMH signal -> SMH calls overlay instead
 ```
 Answers: how much options budget should I use per regime? Shows Calmar ratio (CAGR/|MaxDD|),
 Sharpe, and CAGR across budget fractions 1–20%. Derives three sizing tiers:
