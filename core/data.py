@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import requests
 import yfinance as yf
 import pandas as pd
 
@@ -20,6 +21,16 @@ from core.config import START
 
 CACHE_DIR = Path(__file__).parent.parent / "data"
 _ET = ZoneInfo("America/New_York")
+
+# yfinance's default HTTP client (curl_cffi, used to impersonate a browser's
+# TLS fingerprint) fails behind TLS-terminating proxies that re-negotiate the
+# upstream connection themselves. A plain requests.Session with a normal
+# browser User-Agent works in both environments, so use it explicitly.
+_SESSION = requests.Session()
+_SESSION.headers.update({
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"),
+})
 
 
 def _last_market_close() -> datetime:
@@ -42,7 +53,7 @@ def _cache_is_fresh(path: Path) -> bool:
 
 
 def _download(ticker: str, start: str = None, period: str = None) -> pd.Series:
-    kwargs = dict(auto_adjust=True, progress=False)
+    kwargs = dict(auto_adjust=True, progress=False, session=_SESSION)
     if period:
         raw = yf.download(ticker, period=period, **kwargs)
     else:
