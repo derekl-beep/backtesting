@@ -160,3 +160,77 @@ positive (+3.1% to +11.7%). Robust.
 GLD −0.17 / −0.08. Negative full-history gaps are expected (the strategy wins on
 drawdown/total-return compounding, not per-period Sharpe); watch for the SPMO gap
 widening further.
+
+---
+
+## Call options overlay — initial research, 2026-07-03
+
+### Concept
+
+Add long QQQ calls as a convexity kicker on top of the existing 2x margin strategy.
+Signal source stays SPMO MA10/200. Buy calls at each bull regime start, close at bear flip.
+This is an overlay — the margin leg runs unchanged underneath.
+
+**Why QQQ, not SPMO:**
+- SPMO options: 5 expiries only (max ~6.5 months), ATM spreads 17–24%, OI <1000 — too illiquid for systematic use
+- QQQ: 28 expiries including LEAPS, ATM spreads <1%, deep OI
+- Signal transfer: SPMO signal applied to QQQ gives **88% win rate** vs 62% on SPMO itself. SPMO's duds are factor-rotation events (momentum vs value); the broader market (QQQ) is unaffected.
+
+**Why ATM (Δ0.50), not OTM or deep ITM:**
+- Deep ITM (Δ0.85): cheaper leverage but costs $4–8K premium/regime (mostly intrinsic), wins 8/9 but median RoP only +104%
+- ATM (Δ0.50): wins **9/9**, median RoP +210%, costs ~$2–3K/regime (before dynamic sizing). IV-shocked (+20%) still 8/9, median +158% — robust
+- OTM (Δ0.30): highest headline RoP (+290%) but falls to 6/9 with IV shock and -45% worst regime — too fragile
+
+### Regime statistics (SPMO, 9 regimes since 2016)
+
+| Metric | Value |
+|--------|-------|
+| Median duration | 221 days |
+| Median QQQ return over regime | +14–18% |
+| Signal transfer win rate (QQQ) | 88% (8/9 closed regimes positive) |
+| Best regime (QQQ) | +54% (2020–2022) |
+| Worst closed regime | −3.6% (Feb 2022, 7 days — whipsaw) |
+| ATM call during 7-day whipsaw | +12% RoP (still had 5 months of life left) |
+
+### Budget sweep — dynamic sizing (3% of current equity per regime)
+
+The critical insight: **budget must be sized to current portfolio equity, not fixed initial capital.** With fixed $100K sizing, by 2025 the portfolio is $685K but options are still bought at $3K (0.4% of actual capital). Dynamic sizing fixes this and lets option gains compound.
+
+**Margin-only baseline: CAGR 28.0%, Sharpe 0.97, MaxDD −35.8%**
+
+| Budget | CAGR | Sharpe | MaxDD | CAGR lift |
+|--------|------|--------|-------|-----------|
+| 1% | 28.5% | 1.01 | −32.4% | +0.5% |
+| 3% | 29.9% | 1.06 | −27.5% | +1.9% |
+| 5% | 31.6% | **1.06** | −22.6% | +3.6% |
+| 7% | 33.4% | 1.00 | −22.9% | +5.4% |
+| 10% | 36.2% | 0.91 | −23.2% | +8.3% |
+| 15% | 42.0% | 0.78 | −23.9% | +14.0% |
+| 20% | 48.3% | 0.72 | −26.5% | +20.4% |
+
+**Sharpe sweet spot: 3–5% budget.** Both improve Sharpe above baseline (1.06 vs 0.97) while meaningfully lifting CAGR. MaxDD also shrinks because call gains cushion regime peaks.
+
+**Past 7%:** CAGR keeps rising but Sharpe dips below baseline — option premium draws introduce equity-curve volatility. MaxDD actually ticks back up past 15% (lumpy cash flows at large scale).
+
+**Practical sizing for 10% budget at scale:** by 2026 the portfolio is ~$1M, so 10% = $100K in premium per regime. Real money at risk per entry. Start at 3–5% and scale up as conviction grows.
+
+### IV sensitivity
+
+Rerun with +20% implied vol at entry (i.e., you buy when options are expensive):
+- ATM Δ0.50: win rate drops from 9/9 → 8/9, median RoP drops +210% → +158%. Still comfortably positive.
+- OTM Δ0.30: drops to 6/9, worst regime −45%. Fragile.
+- Conclusion: ATM is robust to expensive entry vol; OTM is not.
+
+### Tool
+
+`python -m tools.options_backtest`                   — per-regime breakdown, all three deltas
+`python -m tools.options_backtest --combined`        — margin + overlay equity curve (ATM, 3%)
+`python -m tools.options_backtest --sweep`           — budget sweep table + chart (ATM default)
+`python -m tools.options_backtest --delta 0.30 --sweep`  — OTM version
+
+### Open questions for next session
+
+1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
+2. **Entry filter:** enter on regime flip always, or wait N days / filter by VIX level? High-VIX entries had the best returns (2020, 2025) — filtering them out would be wrong.
+3. **GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.
+4. **Real execution:** Futu HK options access, contract costs, margin treatment of long calls. Need to verify before committing capital.
