@@ -475,6 +475,10 @@ def _print_combined(margin_equity, overlay_equity, option_events,
     print(f"    Net P&L from calls: ${total_pnl:+,.0f}  ({total_pnl/total_prem:+.0%} on premium)")
     print(f"    CAGR lift:        {o_metrics['cagr'] - m_metrics['cagr']:+.1%}")
 
+    _print_yearly(overlay_equity,
+                  {"Margin only": margin_equity},
+                  label="Combined")
+
 
 def _plot_combined(margin_equity, overlay_equity, target_delta, budget_frac):
     fig, axes = plt.subplots(2, 1, figsize=(13, 8),
@@ -884,6 +888,42 @@ def options_only_backtest(target_delta=0.50, budget_frac=0.10, capital=100_000,
     return equity, regime_events
 
 
+def _print_yearly(equity, benchmark_dict: dict, label: str = "Strategy"):
+    """
+    Print a year-by-year return table.
+    benchmark_dict: {name: equity_series} — printed alongside strategy.
+    """
+    years = sorted(set(equity.index.year))
+    bench_names = list(benchmark_dict.keys())
+
+    hdr = f"  {'Year':<6} {label:>12}"
+    for b in bench_names:
+        hdr += f"  {b:>12}"
+    hdr += f"  {'vs ' + bench_names[0]:>10}" if bench_names else ""
+    print(f"\n{hdr}")
+    print(f"  {'─' * (len(hdr) - 2)}")
+
+    for yr in years:
+        s = equity[equity.index.year == yr]
+        if len(s) < 2:
+            continue
+        ret = s.iloc[-1] / s.iloc[0] - 1
+        row = f"  {yr:<6} {ret:>12.1%}"
+        first_bench_ret = None
+        for i, (name, beq) in enumerate(benchmark_dict.items()):
+            b = beq[beq.index.year == yr]
+            if len(b) < 2:
+                row += f"  {'—':>12}"
+                continue
+            bret = b.iloc[-1] / b.iloc[0] - 1
+            row += f"  {bret:>12.1%}"
+            if i == 0:
+                first_bench_ret = bret
+        if first_bench_ret is not None:
+            row += f"  {ret - first_bench_ret:>+10.1%}"
+        print(row)
+
+
 def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_shock):
     from core.metrics import calc
 
@@ -902,16 +942,17 @@ def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_s
           f"Cash earns T-bill rate ({RISK_FREE_RATE:.1%}/yr) between regimes")
     print(f"{'='*80}")
 
-    col = "{:<12} {:<12} {:>5} {:>8} {:>7} {:>8} {:>8} {:>9} {:>7}"
-    header = col.format("Entry", "Exit", "Days", "QQQ ret", "VIX",
+    col = "{:<12} {:<12} {:>5} {:>8} {:>6} {:>10} {:>9} {:>9} {:>10}"
+    header = col.format("Entry", "Exit", "Days", "QQQ ret", "Legs",
                         "Prem $", "P&L $", "RoP", "Cash after")
     print(f"\n  {header}")
     print(f"  {'-'*len(header)}")
     for e in events:
         print("  " + col.format(
-            e["entry"], e["exit"], e["days_held"],
+            e["entry"], e["exit"],
+            (pd.Timestamp(e["exit"]) - pd.Timestamp(e["entry"])).days,
             f"{e['qqq_return']:+.1%}",
-            f"{e['vix_at_entry']:.0f}",
+            f"x{e.get('n_legs', 1)}",
             f"${e['premium_paid']:,.0f}",
             f"${e['pnl']:+,.0f}",
             f"{e['return_on_premium']:+.0%}",
@@ -929,6 +970,12 @@ def _print_options_only(equity, events, capital, target_delta, budget_frac, iv_s
     print(f"  Win rate:           {wins}/{n} = {wins/n:.0%}")
     print(f"  Total premium:      ${total_prem:,.0f}")
     print(f"  Net option P&L:     ${total_pnl:+,.0f}  ({total_pnl/total_prem:+.0%} on premium)")
+
+    # year-by-year vs QQQ B&H
+    qqq = fetch(CALL_TICKER)
+    bah = capital * qqq / qqq.iloc[0]
+    bah = bah.reindex(equity.index).ffill()
+    _print_yearly(equity, {"QQQ B&H": bah}, label="Options-only")
 
 
 def _plot_options_only(equity, capital, target_delta, budget_frac):
