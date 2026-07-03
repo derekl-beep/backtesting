@@ -156,6 +156,20 @@ next to the real quote, spread, and open interest. Everything else in `options_b
 the proxy IV drifting away from real market pricing. See RESEARCH.md for the first run's
 findings (VIX currently underprices QQQ's real IV; realized vol overstates SMH's).
 
+### Bootstrap confidence intervals over historical regimes
+```bash
+python -m tools.options_bootstrap                  # default: SPMO signal -> QQQ calls
+python -m tools.options_bootstrap GLD SMH
+python -m tools.options_bootstrap SMH --horizon 10  # project 10 future regimes instead of 5
+```
+Resamples historical per-regime returns (with replacement) to turn point-estimate win
+rate/median RoP into confidence intervals, and projects a forward distribution over the
+next N regimes (compounded capital return, P(losing money)). Only 9-13 historical regimes
+exist per ticker — treat this as "how much to trust the point estimate," not a guarantee.
+**Caveat:** a ticker with zero historical losing regimes (e.g. SPMO, 9/9) will always
+bootstrap to a 100% win-rate CI — that reflects an all-positive sample, not proof the
+strategy can't lose. See RESEARCH.md for the full readout.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -217,6 +231,7 @@ tools/  (ETF — master branch)
   portfolio.py           multi-ETF portfolio backtest + chart (params from core/portfolio_config.py)
   options_backtest.py    QQQ call overlay backtest (rolling model, 3 deltas, combined/sweep/compare modes)
   options_chain_check.py validate the BS pricing model against a real live option chain (IV, price, spread, OI)
+  options_bootstrap.py   bootstrap confidence intervals over historical regimes (win rate/RoP CI + forward projection)
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)

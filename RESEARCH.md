@@ -519,6 +519,46 @@ python -m tools.options_chain_check GLD --tenor 90
 snapshot shouldn't be over-interpreted, but it already changed two conclusions (QQQ backtest
 may be too optimistic on premium cost; SMH backtest may be too pessimistic) in one run.
 
+### New tool: bootstrap confidence intervals over historical regimes — 2026-07-03
+
+Built `tools/options_bootstrap.py` — the second toolbox priority from the "how do we prove
+these strategies are robust" discussion. Every win-rate/median-RoP number so far is a point
+estimate from 9-13 historical regimes; this resamples those regimes (with replacement) to
+answer two questions: (1) how much could the *observed* stats have differed by chance from
+the same-sized sample, and (2) projecting forward, what's the plausible range of outcomes
+over the next 5 regimes (compounded capital return at 3% budget/regime).
+
+```
+python -m tools.options_bootstrap SPMO GLD SMH
+python -m tools.options_bootstrap SMH --horizon 10
+```
+
+**Results (10,000 resamples, 5-regime forward horizon):**
+
+| Ticker | Win rate CI | Median RoP CI | 5-regime compounded return (median, 90% CI) | P(losing money over 5) |
+|---|---|---|---|---|
+| SPMO | [100%, 100%]* | [+32%, +121%] | +12% [+6%, +21%] | 0%* |
+| GLD  | [8%, 54%] | [-70%, +37%] | -3% [-10%, +7%] | 71% |
+| SMH  | [36%, 91%] | [-17%, +169%] | +15% [-0%, +34%] | 5% |
+
+**Important caveat on the SPMO row (marked \*):** the historical SPMO sample has *zero*
+losing regimes (9/9), so a bootstrap resample of that sample can only ever redraw from
+all-positive data — it will mechanically report "100% CI: [100%, 100%]" and "P(losing
+money) = 0%" no matter how many times you resample. **This is not evidence that SPMO's
+options overlay can't lose** — it's a restatement of "we have no historical loss to learn
+from," the same small-sample problem `tools.sizing` already flags for Kelly sizing. Read it
+as "the bootstrap has nothing informative to say about SPMO's downside," not as "SPMO is
+safe." GLD and SMH's CIs are informative precisely because their historical samples contain
+real losses to resample from.
+
+**What this confirms:** GLD's rejection is not fragile to sample luck — even the best-case
+resample of its historical regimes rarely turns positive (median RoP CI upper bound is only
++37%, well below breakeven-adjusted expectations). SMH's case is genuinely more nuanced than
+the single point estimate suggested: a 90% CI on the 5-regime compounded return spans
+[-0%, +34%] — attractive expected value, real dispersion, and a non-trivial (though low, 5%)
+chance of a net loss over that horizon. That's a more honest way to size conviction than
+"64% win rate, +82% median RoP" alone.
+
 ### Open questions for next session
 
 1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
