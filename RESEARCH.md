@@ -633,11 +633,72 @@ leverage/edge without the margin engine's drawdown risk"): running both overlays
 on the same account is a concrete, working way to capture SMH's edge alongside the existing
 strategy, with bounded downside on each position.
 
+### Exit rules, entry filter, and SMH sizing — 2026-07-03
+
+Closes three of the six open questions below with real data.
+
+**1. Exit rules — tested, baseline (hold to bear flip, 30-DTE roll) wins.** Built a
+day-by-day path simulator (walks each leg's daily option value via Black-Scholes, using
+the same realized-vol-at-each-day methodology the existing exit pricing uses) to test two
+alternatives against the shipped baseline, on both SPMO→QQQ and SMH→SMH:
+
+| Variant | SPMO→QQQ median RoP | SMH→SMH median RoP |
+|---|---|---|
+| Baseline (30 DTE roll, hold to bear flip) | +52% | +82% |
+| 60 DTE roll window (longer legs) | +36% | +60% |
+| Profit target +50% RoP scale-out | +51% (mean 80%→45%) | +29% (mean 98%→16%) |
+| Profit target +100% RoP scale-out | +46% | +58% |
+| Profit target +150% RoP scale-out | +66% (mean still lower) | +73% (mean still lower) |
+
+Every alternative underperforms the baseline, and the mean (not just median) tells the
+real story: profit-target scale-out triggers on 60-80% of legs at the +50% threshold, but
+cutting winners short there sacrifices exactly the convex tail gains (the +200-355% legs
+found in SMH, the +210% recent SPMO leg) that this strategy exists to capture — this is a
+trend-following, convex-payoff strategy, and profit-taking is structurally at odds with
+that. The 60-DTE roll window is worse too: rolling less often means holding through more
+of each option's accelerating theta decay before refreshing into a new at-the-money
+contract. **Conclusion: keep the existing 30-DTE roll / hold-to-bear-flip design. Don't add
+a profit target or a longer roll window.**
+
+**2. Entry filter by VIX/IV level — tested, no filter recommended; corrects an earlier
+assumption.** Measured entry-day IV proxy against eventual regime RoP directly (regime-level,
+not leg-level) for all 9 SPMO regimes and 11 SMH regimes:
+- SPMO: correlation(entry IV, RoP) = **-0.45** — if anything, *lower*-IV entries did better
+  (median +125% below-median-IV vs +32% above-median-IV). This is the opposite of the
+  informal note previously in this file ("high-VIX entries had the best returns") — that
+  note likely conflated regime-level entry timing with leg-level roll timing within a long
+  multi-leg regime (a single VIX reading at regime start isn't representative of a 600+ day
+  regime with 5 rolled legs inside it).
+- SMH: correlation = **-0.07** (essentially none), though a median split shows the opposite
+  direction (+122% above-median vs +13% below-median) — with only 11 points, this is noise,
+  not a usable signal.
+
+**Conclusion: no VIX/IV entry filter is justified by this data.** Neither ticker shows a
+clean, sample-robust relationship between entry-day IV and eventual regime return — and
+SPMO's own data actively argues against "wait for high VIX." Correcting the earlier
+informal note in this file; don't build an entry filter on this basis.
+
+**3. SMH-specific budget sizing — done**, using `tools.portfolio_combined`'s generalized
+infrastructure (SMH signal → SMH calls only, no base SPMO/QQQ overlay, same margin legs).
+Calmar/Sharpe/CAGR swept 1%-20% budget, same style as the SPMO/QQQ sizing table:
+
+| Budget | CAGR | Sharpe | Calmar | MaxDD |
+|--------|------|--------|--------|-------|
+| 3%  | 31.7% | **1.13** | 1.01 | -31.4% |
+| 15% | 54.9% | 0.85 | **1.64** | -33.4% |
+| 20% | 66.8% | 0.82 | 1.62 | -41.1% |
+
+Margin-only baseline: CAGR 28.0%, Sharpe 0.97, Calmar 0.78, MaxDD -35.8%. Every budget level
+1%-20% improves both CAGR and Calmar over margin-only, and Sharpe improves at every level up
+to 15%. Conservative (best Sharpe): 3%. Moderate (best Calmar): 15% — notably a *higher*
+Calmar than the SPMO/QQQ overlay's own sizing result (1.64 vs 1.29 at 15%), reinforcing SMH
+as a strong overlay candidate. Aggressive (best CAGR): 20%.
+
 ### Open questions for next session
 
-1. **Exit rules:** currently hold to bear flip. Test: (a) profit target on option (+100% RoP → scale out), (b) time-roll at 60 DTE remaining, (c) roll-up on strength. The 2016–2018 regime peaked mid-way — a trailing stop could capture more.
-2. **Entry filter:** enter on regime flip always, or wait N days / filter by VIX level? High-VIX entries had the best returns (2020, 2025) — filtering them out would be wrong.
+1. ~~**Exit rules:** ... The 2016–2018 regime peaked mid-way — a trailing stop could capture more.~~ **Done, 2026-07-03 — baseline confirmed best.** See above.
+2. ~~**Entry filter:** enter on regime flip always, or wait N days / filter by VIX level?~~ **Done, 2026-07-03 — no filter justified.** See above (also corrects the "high-VIX entries had the best returns" note this item used to carry).
 3. ~~**GLD leg:** GLD has decent options liquidity. Could run a parallel GLD call overlay on GLD's own signal (MA20/100). Not yet tested.~~ **Done, 2026-07-03 — rejected.** See above: GLD's signal produces too many short whipsaw regimes for a 180-day call to survive.
 4. **Real execution:** Futu HK options access, contract costs, margin treatment of long calls. Need to verify before committing capital.
 5. **Kelly revisit:** once 20+ regimes have accumulated (live + historical), rerun `tools.sizing` — Kelly will become a reliable cross-check on the Calmar-derived sizes.
-6. ~~**SMH options sizing:** ... decide whether it becomes a standalone satellite position or gets folded into the existing options tooling as a second signal source.~~ **Partially answered, 2026-07-03** — `tools.portfolio_combined` shows it works well folded in alongside the SPMO/QQQ overlay (CAGR/Sharpe/MaxDD all improve further). Still needs: a real (not realized-vol-proxy) IV check before sizing real capital — `tools.options_chain_check SMH` is the tool for that, and its first run already flagged realized vol as directionally miscalibrated for SMH right now (see above) — and a decision on exact budget fraction, which `tools.sizing`-style analysis hasn't been run for SMH specifically yet.
+6. ~~**SMH options sizing:** ... decide whether it becomes a standalone satellite position or gets folded into the existing options tooling as a second signal source.~~ **Done, 2026-07-03.** See above — Conservative 3% / Moderate 15% / Aggressive 20%, folds in well alongside the SPMO/QQQ overlay per `tools.portfolio_combined`. Still true: a real (not realized-vol-proxy) IV check remains the caveat before sizing real capital (`tools.options_chain_check SMH`).
