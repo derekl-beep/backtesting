@@ -217,6 +217,21 @@ or Sharpe — with ~9-13 regimes of history, none of this project's tickers can 
 statistically distinguished from random timing of the same exposure. See RESEARCH.md for
 the full readout and important caveats on what this null does and doesn't test.
 
+### Monte Carlo forward simulation
+```bash
+python -m tools.monte_carlo              # all portfolio tickers
+python -m tools.monte_carlo SPMO GLD SMH
+python -m tools.monte_carlo SMH --horizon 10 --resamples 2000
+```
+Simulates thousands of synthetic *forward* price paths (GBM and block-bootstrap-of-real-
+returns, run side by side as a model-risk check) and scores the actual MA-crossover +
+leverage strategy against each — unlike `tools.options_bootstrap`, which can only resample
+the exact historical regimes, this can explore tail scenarios worse than anything actually
+observed. First run: SPMO/GLD show the two methods agreeing reasonably (median CAGR gap
+<3%); SMH's methods diverge and its worst-5% MaxDD hits **-75%**, worse than any historical
+SMH regime — independent confirmation (via a completely different method) that SMH's
+volatility is too severe for the margin engine. See RESEARCH.md for the full readout.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -283,6 +298,7 @@ tools/  (ETF — master branch)
   options_sensitivity.py delta x budget heatmap + first/second-half decay check for the options overlay
   portfolio_combined.py  margin legs + N simultaneous options overlays on one shared capital base
   significance.py        circular-shift permutation test: is MA-crossover timing better than random?
+  monte_carlo.py         GBM + block-bootstrap forward simulation: what could happen, not just what did
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)

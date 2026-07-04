@@ -694,6 +694,59 @@ to 15%. Conservative (best Sharpe): 3%. Moderate (best Calmar): 15% — notably 
 Calmar than the SPMO/QQQ overlay's own sizing result (1.64 vs 1.29 at 15%), reinforcing SMH
 as a strong overlay candidate. Aggressive (best CAGR): 20%.
 
+### New tool: Monte Carlo forward simulation — 2026-07-03
+
+Built `tools/monte_carlo.py` — second item from the quant-rigor toolbox discussion.
+`tools/options_bootstrap.py` resamples the *exact* 9-13 historical regimes, so it can only
+ever produce recombinations of what actually happened; it can't imagine a bear market worse
+than 2022 or a whipsaw stretch worse than Feb 2022. This tool instead calibrates a
+return-generating model to history and simulates thousands of synthetic *forward* price
+paths, running the real MA-crossover + leverage logic against each one.
+
+**Two methods, run side by side as an honest model-risk check:** GBM (i.i.d. daily
+log-returns drawn from a fitted Normal — simple, but no fat tails or trend persistence) and
+block bootstrap (resamples overlapping ~21-day blocks of real historical daily returns —
+preserves fat tails and trend persistence, no parametric assumption, but can only recombine
+historical block-level behavior). Each synthetic path is prefixed with real historical data
+to warm up the MA windows before the simulated segment is scored.
+
+```
+python -m tools.monte_carlo SPMO GLD SMH --horizon 5
+```
+
+**Results (5-year horizon, 300 sims/method):**
+
+| Ticker | Method | CAGR median (5-95pct) | MaxDD median | MaxDD worst-5% | P(loss) |
+|---|---|---|---|---|---|
+| SPMO | GBM | +26.4% (-1.3%, +74.4%) | -41.9% | -58.7% | 6% |
+| SPMO | Block | +29.4% (+2.5%, +67.1%) | -41.2% | -58.5% | 3% |
+| GLD | GBM | +15.1% (-3.3%, +47.4%) | -35.8% | -51.4% | 10% |
+| GLD | Block | +15.9% (-4.3%, +43.5%) | -35.2% | -50.7% | 9% |
+| SMH | GBM | +46.7% (-0.7%, +150.1%) | -57.4% | -74.8% | 5% |
+| SMH | Block | +51.8% (+6.6%, +133.3%) | -55.2% | -74.9% | 3% |
+
+**SPMO and GLD:** the two methods broadly agree (median CAGR gap <1-3%), giving more
+confidence in the forward risk picture. Both show plausible ranges around the historical
+numbers, with worst-case (5th percentile) MaxDD somewhat deeper than anything in the
+specific 2016-2026 historical path — exactly the point of simulating beyond exact history.
+
+**SMH: methods diverge (auto-flagged, median CAGR gap 5.1%), and the tail is severe.**
+Worst-5% MaxDD hits **-75%** under both methods — notably worse than any single historical
+SMH regime (worst seen historically was around -60%, per the earlier drawdown-constraint
+rejection). This is independent confirmation, via a completely different method (forward
+simulation vs regime-level bootstrap), of the same conclusion reached earlier: SMH's
+volatility profile is too severe for the margin engine's constraints, and even satellite/
+options exposure should size for tail scenarios worse than anything actually observed
+2016-2026, not just the historical worst case.
+
+**Interesting nuance:** block bootstrap consistently shows *less* downside than GBM (lower
+P(loss), similar-or-better worst-case MaxDD) despite preserving fat tails GBM lacks — likely
+because it also preserves real trend persistence/autocorrelation, which a trend-following
+MA-crossover signal actually benefits from (GBM's i.i.d. draws create choppier, less
+coherent "trends" that confuse the crossover into extra whipsaws). Neither method is "the
+answer" alone; where they agree is more trustworthy than either individually, and where
+they diverge (SMH) is itself a signal to size conservatively.
+
 ### New tool: statistical significance of MA-crossover timing — 2026-07-03
 
 Built `tools/significance.py` — a quant-rigor gap flagged when discussing what tools would
