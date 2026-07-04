@@ -16,7 +16,8 @@ PORTFOLIO = {
 # e.g. rejected for margin on drawdown grounds but used as a call-options overlay
 # underlying (SMH), or validated with real alpha but too correlated to SPMO to add
 # (MTUM, XLK). Single source of truth so tools don't each re-derive or hardcode these;
-# see RESEARCH.md for the backing walk-forward runs and rejection/acceptance reasoning.
+# see research/etf_candidates.md for the backing walk-forward runs and rejection/acceptance
+# reasoning.
 CANDIDATE_SIGNALS = {
     "SMH": dict(ma_fast=50, ma_slow=100),   # tools.optimize SMH, pre-2022 folds; options overlay only, not margin
     "MTUM": dict(ma_fast=30, ma_slow=50),   # tools.optimize MTUM, 2026-07-03 -- rejected for portfolio (too correlated to SPMO)

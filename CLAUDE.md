@@ -147,7 +147,7 @@ Default budget: **5%** (research sweet spot — best Sharpe, Calmar improves ove
 `--options-only` (with or without `--sweep`). `--combined`/`--compare`/plain `--sweep` are
 still SPMO/QQQ-only — use `tools.portfolio_combined`, `tools.sizing --ticker`, and
 `tools.options_sensitivity` for the generalized equivalents.
-Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See RESEARCH.md.
+Key finding: 3–5% overlay budget sweet spot (Sharpe improves, MaxDD shrinks). See research/options_overlay.md.
 
 ### Validate pricing model against a real option chain
 ```bash
@@ -159,8 +159,8 @@ python -m tools.options_chain_check GLD --tenor 90
 Pulls the real live option chain nearest the modeled tenor/delta and prints model price/IV
 next to the real quote, spread, and open interest. Everything else in `options_backtest.py`/
 `options_signal.py` is theoretical Black-Scholes pricing — run this periodically to catch
-the proxy IV drifting away from real market pricing. See RESEARCH.md for the first run's
-findings (VIX currently underprices QQQ's real IV; realized vol overstates SMH's).
+the proxy IV drifting away from real market pricing. See research/options_overlay.md for
+the first run's findings (VIX currently underprices QQQ's real IV; realized vol overstates SMH's).
 
 ### Bootstrap confidence intervals over historical regimes
 ```bash
@@ -174,7 +174,7 @@ next N regimes (compounded capital return, P(losing money)). Only 9-13 historica
 exist per ticker — treat this as "how much to trust the point estimate," not a guarantee.
 **Caveat:** a ticker with zero historical losing regimes (e.g. SPMO, 9/9) will always
 bootstrap to a 100% win-rate CI — that reflects an all-positive sample, not proof the
-strategy can't lose. See RESEARCH.md for the full readout.
+strategy can't lose. See research/options_overlay.md for the full readout.
 
 ### Options-parameter sensitivity (delta x budget heatmap)
 ```bash
@@ -186,7 +186,7 @@ every historical regime — the options-overlay analog of `tools.sensitivity`'s 
 Also splits regime history in half chronologically to flag a decaying edge. First run found
 GLD's rejection holds across the *entire* grid (not just the default point), SPMO/QQQ's edge
 has roughly halved over time (still positive), and SMH's strong number is front-loaded into
-the recent semiconductor rally. See RESEARCH.md for details.
+the recent semiconductor rally. See research/options_overlay.md for details.
 
 ### Multi-overlay portfolio aggregation
 ```bash
@@ -199,7 +199,7 @@ number of simultaneous options overlays sharing one capital base — needed once
 than one options position at a time. Regimes from every overlay are merged chronologically
 so a later overlay's dynamic budget sizing reflects earlier overlays' realized P&L. First
 run: margin + SPMO/QQQ + SMH/SMH together lifts CAGR 28.0%→35.0%, Sharpe 0.97→1.22, and
-*reduces* MaxDD to -26.3% (better than margin-only or either overlay alone). See RESEARCH.md.
+*reduces* MaxDD to -26.3% (better than margin-only or either overlay alone). See research/options_overlay.md.
 
 ### Statistical significance of signal timing
 ```bash
@@ -214,8 +214,8 @@ specific MA window beat random timing of the same exposure, or could the numbers
 plus a rising market?" — a level deeper than the existing leverage-vs-signal-quality
 methodology finding. First run: **none of SPMO/GLD/SMH show p<0.05 significance** on CAGR
 or Sharpe — with ~9-13 regimes of history, none of this project's tickers can yet be
-statistically distinguished from random timing of the same exposure. See RESEARCH.md for
-the full readout and important caveats on what this null does and doesn't test.
+statistically distinguished from random timing of the same exposure. See research/quant_toolbox.md
+for the full readout and important caveats on what this null does and doesn't test.
 
 ### Monte Carlo forward simulation
 ```bash
@@ -230,7 +230,7 @@ the exact historical regimes, this can explore tail scenarios worse than anythin
 observed. First run: SPMO/GLD show the two methods agreeing reasonably (median CAGR gap
 <3%); SMH's methods diverge and its worst-5% MaxDD hits **-75%**, worse than any historical
 SMH regime — independent confirmation (via a completely different method) that SMH's
-volatility is too severe for the margin engine. See RESEARCH.md for the full readout.
+volatility is too severe for the margin engine. See research/quant_toolbox.md for the full readout.
 
 ### Value at Risk / Conditional VaR
 ```bash
@@ -244,7 +244,7 @@ simulated distribution (total return and MaxDD, 95%/99% confidence). Warns expli
 too few Monte Carlo sims exist for a stable 99% tail estimate rather than reporting a noisy
 number silently. Third independent confirmation (after the options bootstrap and Monte
 Carlo) that SMH's tail risk is too severe for the margin engine — forward MaxDD VaR/CVaR
-sit around 75-83% even at the median simulated future. See RESEARCH.md for the full table.
+sit around 75-83% even at the median simulated future. See research/quant_toolbox.md for the full table.
 
 ### Probabilistic regime signal (continuous confidence vs hard flip)
 ```bash
@@ -260,7 +260,7 @@ threshold (worse Sharpe and MaxDD for SPMO/SMH, and SMH generates 6x more levera
 despite having the widest/most informative probability range of the three). Consistent with
 `tools.significance`'s finding from a different angle: a from-scratch statistical model on
 simple technical features can't extract a probability signal discriminating enough to beat
-the simple threshold. See RESEARCH.md for the full comparison table.
+the simple threshold. See research/quant_toolbox.md for the full comparison table.
 
 ### Risk-adjusted sizing analysis
 ```bash
@@ -401,8 +401,9 @@ Stock strategies:
 
 ## Research log
 
-`RESEARCH.md` — running record of tested ETFs, rejected candidates, and signal config experiments.
-Check it before re-testing an idea. Update it whenever a backtest produces a clear finding.
+`research/` — running record of tested ETFs, rejected candidates, and signal config
+experiments, split into topic files (start at `research/README.md`). Check it before
+re-testing an idea. Update it whenever a backtest produces a clear finding.
 
 ## Roadmap
 
@@ -417,17 +418,18 @@ exposure: roughly halves SPY's drawdown with comparable-to-slightly-better Sharp
 is in the same ballpark as buy-and-hold, not the outsized returns the leveraged momentum
 strategy shows. Untested: does layering the same "2x when confirmed strong" leverage
 mechanism used elsewhere in this project on top of sector rotation turn "comparable CAGR,
-better risk profile" into genuine outperformance? See RESEARCH.md for the full backtest.
+better risk profile" into genuine outperformance? See research/strategy_experiments.md for
+the full backtest.
 
 **Web UI — discussed 2026-07-03, not yet scoped or built.** All tooling today is CLI +
-PNG charts + a growing `RESEARCH.md` log. Discussed whether a web UI would help: verdict
+PNG charts + a growing `research/` log. Discussed whether a web UI would help: verdict
 was yes, but narrowly — for *checking* things, not for doing research. Concrete slices
 worth considering, roughly in priority order:
   1. **Daily signal dashboard** — current signal state, days in regime, distance to flip,
      position sizing, rendered as a page instead of requiring `tools.signal` in a terminal.
      Highest value since it's the most frequent action (checked daily).
   2. **Chart/research browsing** — a searchable/filterable view over the dated PNG charts
-     in `charts/` and the findings in `RESEARCH.md`, instead of scrolling files.
+     in `charts/` and the findings in `research/`, instead of scrolling files.
   3. **Interactive parameter exploration** — sliders for delta/budget/MA windows that
      recompute `tools.sensitivity`/`tools.options_sensitivity`-style output live, instead
      of re-running CLI flags one at a time.
@@ -446,21 +448,22 @@ implementation complexity, easiest first.
 **1. Bull call spread — tested and rejected, 2026-07-03.** Naked ATM call beats both a wide
 (Δ0.50/0.30) and narrow (Δ0.50/0.40) spread on total dollar P&L for both SPMO→QQQ (+$52.5K
 vs +$52.1K/+$47.1K) and SMH→SMH (+$83.1K vs +$56.7K/+$49.1K) — the short leg caps exactly
-the rare monster-move legs that drive most of the strategy's return. See RESEARCH.md.
+the rare monster-move legs that drive most of the strategy's return. See
+research/strategy_experiments.md.
 
 **2. Covered calls on the margin leg — tested and rejected, 2026-07-03.** Selling monthly
 Δ0.30 calls against the 2x SPMO notional made things worse on every metric: CAGR 28.0%→26.7%,
 Sharpe 0.97→0.91, MaxDD -35.8%→-42.2% (worse, not better). A single assigned cycle during a
 strong up-month cost -$173,912, outweighing dozens of small premium wins. Same root cause as
-the spread rejection above. See RESEARCH.md.
+the spread rejection above. See research/strategy_experiments.md.
 
-**3. Leveraged ETF rotation (TQQQ / UPRO) — tested and rejected, 2026-07-03.** Ran
+**3. Leveraged ETF rotation (TQQQ / UPRO / SOXL) — tested and rejected, 2026-07-03.** Ran
 `tools.screen`/`tools.optimize` directly on TQQQ/UPRO/SOXL: all show strongly negative alpha
 vs their own B&H at baseline (-18% to -41%), and none pass the -50% drawdown constraint even
 in the first OOS fold (2018 alone produces -53% to -74% MaxDD). Volatility decay from daily
 fund rebalancing is fundamentally incompatible with a slow MA-crossover trigger at any
-exposure level. See RESEARCH.md for details. Closed — do not revisit without a materially
-different (faster/adaptive) signal.
+exposure level. See research/etf_candidates.md for details. Closed — do not revisit without
+a materially different (faster/adaptive) signal.
 
 **4. Diagonal spread (poor man's covered call)** — buy deep ITM LEAPS (Δ~0.85, 12–18 month
 expiry) as a stock replacement, sell near-term OTM calls monthly against it. LEAPS provide
@@ -480,7 +483,8 @@ monthly Δ-0.30 puts on QQQ during all 9 SPMO bear stretches: CAGR 28.0%→28.4%
 existing winning position — it's a standalone premium-harvesting overlay during periods
 already out of the market. Real but modest; 2022 was the roughest historical test and held
 up, though a longer/deeper bear regime than any seen 2016-2026 could look worse. See
-RESEARCH.md. Worth adding as a minor enhancement if the operational overhead is acceptable.
+research/strategy_experiments.md. Worth adding as a minor enhancement if the operational
+overhead is acceptable.
 
 **Implementation notes:**
 - `tools/options_backtest.py` already has the BS pricer, VIX IV proxy, regime extractor, and

@@ -18,8 +18,8 @@ shifts that do at least as well as the actual timing is the p-value.
 
 This is a weaker (more generous) null than "pure noise" -- it only asks
 whether *this specific timing choice* beats *other timing of the same
-block structure*, not whether leverage itself helps. See RESEARCH.md's
-"Methodology" entry for that broader finding.
+block structure*, not whether leverage itself helps. See research/methodology.md
+for that broader finding.
 
 Usage:
   python -m tools.significance              # all portfolio tickers
@@ -103,7 +103,7 @@ def analyze(ticker: str, n_shifts: int = N_SHIFTS):
     print(f"  p-value (Sharpe, one-sided): {r['p_sharpe']:.3f}   — {_verdict(r['p_sharpe'])}")
     print(f"\n  Note: this null preserves the exact regime-block-length distribution and")
     print(f"  total time levered -- it tests whether THIS timing beats OTHER timing of")
-    print(f"  the same exposure, not whether leverage itself helps (see RESEARCH.md).")
+    print(f"  the same exposure, not whether leverage itself helps (see research/methodology.md).")
 
 
 if __name__ == "__main__":
