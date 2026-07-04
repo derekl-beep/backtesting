@@ -26,14 +26,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from core.data import fetch
-from core.portfolio_config import PORTFOLIO, DEFAULT_SIGNAL
-import signals.ma as sig_ma
-from tools.options_backtest import (
-    SIGNAL_TICKER, CALL_TICKER, IV_TICKER, ROLL_DTE,
-    _get_regimes, simulate_regime_with_rolls,
-)
-from tools.options_chain_check import iv_proxy_series
+from tools.options_backtest import SIGNAL_TICKER, ROLL_DTE, simulate_regime_with_rolls
+from tools.options_common import overlay_inputs
 
 CHART_DIR = Path(__file__).parent.parent / "charts" / "options_sensitivity"
 CAPITAL   = 100_000
@@ -41,20 +35,6 @@ DELTAS    = [0.30, 0.40, 0.50, 0.60, 0.70, 0.85]
 BUDGETS   = [0.01, 0.03, 0.05, 0.07, 0.10, 0.15, 0.20]
 CURRENT_DELTA  = 0.50
 CURRENT_BUDGET = 0.05
-
-
-def _price_and_iv(ticker: str):
-    if ticker == SIGNAL_TICKER:
-        signal_prices = fetch(SIGNAL_TICKER)
-        call_prices   = fetch(CALL_TICKER)
-        iv_prices     = fetch(IV_TICKER)
-        cfg           = PORTFOLIO[SIGNAL_TICKER]
-    else:
-        signal_prices = fetch(ticker)
-        call_prices   = signal_prices
-        cfg           = PORTFOLIO.get(ticker, DEFAULT_SIGNAL)
-        iv_prices     = iv_proxy_series(ticker, signal_prices)
-    return signal_prices, call_prices, iv_prices, cfg
 
 
 def _regime_rop(regime, call_prices, iv_prices, target_delta, budget_frac):
@@ -173,15 +153,12 @@ def _decay_check(regimes, call_prices, iv_prices, delta, budget):
 
 
 def analyze(ticker: str):
-    signal_prices, call_prices, iv_prices, cfg = _price_and_iv(ticker)
-    signal  = sig_ma.signal(signal_prices, cfg["ma_fast"], cfg["ma_slow"])
-    regimes = _get_regimes(signal)
+    call_prices, iv_prices, regimes, label = overlay_inputs(ticker)
     if len(regimes) < 3:
         print(f"\n{ticker}: only {len(regimes)} regimes — not enough to sweep.")
         return
 
-    label = (f"{SIGNAL_TICKER} signal -> {CALL_TICKER} calls" if ticker == SIGNAL_TICKER
-             else f"{ticker} signal -> {ticker} calls")
+    label = label.replace("→", " signal -> ") + " calls"
     print(f"\n{'='*60}")
     print(f"  {label} — sensitivity around Δ{CURRENT_DELTA:.2f}/{CURRENT_BUDGET:.0%}")
     print(f"{'='*60}")

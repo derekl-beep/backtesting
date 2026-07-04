@@ -23,7 +23,7 @@ GLD was selected via ETF screener (`tools/screen.py`) for its low correlation to
 
 Walk-forward optimization (expanding window, 2016 anchor), tuned jointly at the
 portfolio level via `tools/tune.py` — per-ticker optima proved fragile once
-portfolio-level fee drag was accounted for (see `RESEARCH.md`):
+portfolio-level fee drag was accounted for (see `research/signal_configs.md`):
 - OOS folds: 2018–2025 — used to select MA params
 - Final held-out test: 2025–present (touched once per year)
 

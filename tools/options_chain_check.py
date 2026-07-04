@@ -26,13 +26,7 @@ from tools.options_backtest import (
     RISK_FREE_RATE, SPREAD_COST, TENOR_DAYS,
     bs_call, bs_delta, strike_for_delta, _realized_vol,
 )
-
-# Ticker -> real listed implied-vol index. Tickers not listed here fall back to a
-# trailing realized-vol proxy (see tools/options_backtest.py's own fallback for SMH).
-KNOWN_IV_PROXIES = {
-    "QQQ": "^VIX",
-    "GLD": "^GVZ",
-}
+from tools.options_common import KNOWN_IV_PROXIES, iv_proxy_series  # noqa: F401 (re-exported)
 
 MIN_LIQUID_OI = 50   # open interest below this is a real-world liquidity warning
 
@@ -45,21 +39,6 @@ def _model_iv(ticker: str, prices: pd.Series) -> tuple[float, str]:
         return float(proxy.iloc[-1]) / 100.0, f"{proxy_ticker} (listed implied-vol index)"
     sigma = _realized_vol(prices, prices.index[-1])
     return sigma, "trailing 21-day realized vol (no listed vol index for this ticker)"
-
-
-def iv_proxy_series(ticker: str, prices: pd.Series) -> pd.Series:
-    """
-    Full time-indexed IV proxy series for `ticker` (percent scale, matching the
-    ^VIX/^GVZ convention) -- the real listed vol index if one is configured in
-    KNOWN_IV_PROXIES, otherwise a trailing 21-day realized-vol series computed
-    from `prices` itself. Shared by any tool that needs IV history (not just a
-    single as-of-today value) for a ticker with no listed vol index.
-    """
-    proxy_ticker = KNOWN_IV_PROXIES.get(ticker)
-    if proxy_ticker:
-        return fetch(proxy_ticker)
-    ret = prices.pct_change()
-    return (ret.rolling(21).std() * (252 ** 0.5) * 100).bfill()
 
 
 def _nearest_expiry(ticker: str, target_days: int):

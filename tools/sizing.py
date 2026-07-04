@@ -1,5 +1,6 @@
 """
-Risk-adjusted sizing analysis for the SPMO options strategy.
+Risk-adjusted sizing analysis for a call-options overlay (any ticker's own
+signal -> own calls, or the shipped SPMO signal -> QQQ calls).
 
 Shows how Calmar ratio (CAGR / |MaxDD|) and Sharpe respond to the options
 budget fraction, helping you pick a budget that matches your risk tolerance.
@@ -21,6 +22,7 @@ Usage:
   python -m tools.sizing
   python -m tools.sizing --delta 0.30   # OTM calls
   python -m tools.sizing --capital 150000
+  python -m tools.sizing --ticker SMH   # SMH signal -> SMH calls instead of SPMO -> QQQ
 """
 
 import sys
@@ -36,10 +38,11 @@ from core.config import INITIAL_CAPITAL
 from core.metrics import calc
 from pathlib import Path
 from tools.options_backtest import (
-    CALL_TICKER, PORTFOLIO, ROLL_DTE, SIGNAL_TICKER, SWEEP_BUDGETS,
-    _build_portfolio_equity, _fetch_all, _get_regimes, budget_sweep, run,
+    ROLL_DTE, SIGNAL_TICKER, SWEEP_BUDGETS,
+    _build_portfolio_equity, simulate_regime_with_rolls,
 )
-from signals import ma as sig_ma
+from tools.options_common import overlay_inputs
+from tools.portfolio_combined import _overlay_spec, build_combined_equity
 
 CHART_DIR = Path(__file__).parent.parent / "charts"
 
@@ -99,36 +102,45 @@ def _regime_stats(returns: list[float]) -> dict:
 # Core analysis
 # ---------------------------------------------------------------------------
 
-def analyze(target_delta: float = 0.50, capital: float = INITIAL_CAPITAL,
-            roll_dte: int = ROLL_DTE):
-    from core.data import fetch
+def analyze(ticker: str = SIGNAL_TICKER, target_delta: float = 0.50,
+            capital: float = INITIAL_CAPITAL, roll_dte: int = ROLL_DTE):
+    call_prices, iv_prices, regimes, label = overlay_inputs(ticker)
 
-    spmo, qqq, vix, signal = _fetch_all()
-    regimes = _get_regimes(signal)
-
-    # 1. margin-only equity + per-regime stats
+    # 1. margin-only equity + per-regime stats (same SPMO/GLD margin legs
+    # regardless of which ticker's options overlay is being sized)
     margin_eq = _build_portfolio_equity(capital)
     margin_m   = calc(margin_eq)
     margin_rets = _margin_regime_returns(margin_eq, regimes)
     margin_stats = _regime_stats(margin_rets)
 
     # 2. options layer per-regime stats (at 10% budget, scale-independent)
-    opt_rows = run(target_delta=target_delta, budget_frac=0.10,
-                   capital=capital, roll_dte=roll_dte)
-    # per-regime return ON PREMIUM (RoP) is budget-independent
-    rop_values = [r["return_on_premium"] for r in opt_rows]
+    rop_values = []
+    for start, end in regimes:
+        _, agg = simulate_regime_with_rolls(start, end, call_prices, iv_prices,
+                                             target_delta, 0.10, capital,
+                                             iv_shock=0.0, roll_dte=roll_dte)
+        if agg:
+            rop_values.append(agg["return_on_premium"])
     opt_stats  = _regime_stats(rop_values)
     # convert kelly from "fraction of options budget" to "fraction of total capital"
     # If per-regime capital return = b × RoP → optimal b = μ_RoP / σ_RoP²
     opt_kelly_capital   = opt_stats["mean"] / opt_stats["std"]**2 if opt_stats["std"] > 0 else float("inf")
     opt_half_kelly_cap  = opt_kelly_capital / 2
 
-    # 3. sweep: Calmar + Sharpe at each budget level
-    margin_eq_ref, sweep_rows = budget_sweep(
-        target_delta=target_delta, capital=capital, roll_dte=roll_dte,
-    )
-    for r in sweep_rows:
-        r["calmar"] = r["cagr"] / abs(r["max_dd"]) if r["max_dd"] < 0 else float("inf")
+    # 3. sweep: Calmar + Sharpe at each budget level, using the same shared
+    # equity builder tools.portfolio_combined uses for multi-overlay aggregation
+    sweep_rows = []
+    for bf in SWEEP_BUDGETS:
+        spec = _overlay_spec(ticker, target_delta, bf, roll_dte)
+        _, combined_eq, _ = build_combined_equity(capital, [spec])
+        m = calc(combined_eq)
+        sweep_rows.append({
+            "budget_frac": bf,
+            "cagr":        m["cagr"],
+            "sharpe":      m["sharpe"],
+            "max_dd":      m["max_dd"],
+            "calmar":      m["cagr"] / abs(m["max_dd"]) if m["max_dd"] < 0 else float("inf"),
+        })
 
     # 4. identify sizing tiers
     max_sharpe_row  = max(sweep_rows, key=lambda r: r["sharpe"])
@@ -140,6 +152,8 @@ def analyze(target_delta: float = 0.50, capital: float = INITIAL_CAPITAL,
     moderate_desc  = "Calmar ≥ 1.5" if calmar_targets else f"max Calmar ({max_calmar_row['calmar']:.2f})"
 
     return {
+        "ticker":          ticker,
+        "label":           label,
         "capital":         capital,
         "target_delta":    target_delta,
         "regimes":         regimes,
@@ -172,11 +186,9 @@ def _print_analysis(res: dict):
     tiers        = {k: v[0] for k, v in res["tiers"].items()}
     tier_descs   = {k: v[1] for k, v in res["tiers"].items()}
 
-    cfg = PORTFOLIO[SIGNAL_TICKER]
     print(f"\n{'='*72}")
     print(f"  Risk-adjusted sizing analysis")
-    print(f"  Signal: SPMO MA{cfg['ma_fast']}/{cfg['ma_slow']}  |  "
-          f"QQQ Δ{delta:.2f} calls  |  capital: ${capital:,.0f}")
+    print(f"  Overlay: {res['label']}  |  Δ{delta:.2f} calls  |  capital: ${capital:,.0f}")
     print(f"{'='*72}")
 
     # ── Strategy metrics (across the full period) ──────────────────────────
@@ -208,7 +220,8 @@ def _print_analysis(res: dict):
     print(f"  {'Calmar = CAGR / |MaxDD| — higher is better risk-adjusted return':^70}")
 
     # ── Per-layer regime statistics ────────────────────────────────────────
-    print(f"\n  ┌─ Per-regime outcomes ({m_s['n']} SPMO bull regimes) {'─'*20}┐")
+    signal_ticker = res["label"].split("→")[0]
+    print(f"\n  ┌─ Per-regime outcomes ({m_s['n']} {signal_ticker} bull regimes) {'─'*20}┐")
     print(f"\n  {'':30} {'Margin layer':>14} {'Options layer (RoP)':>20}")
     print(f"  {'─'*66}")
     print(f"  {'Win rate':30} {m_s['win_rate']:>14.0%} {o_s['win_rate']:>20.0%}")
@@ -294,6 +307,7 @@ def _plot_analysis(res: dict):
     tiers  = {k: v[0] for k, v in res["tiers"].items()}
     m_m    = res["margin_metrics"]
     delta  = res["target_delta"]
+    label  = res["label"]
 
     budgets = [r["budget_frac"] * 100 for r in sweep]
     calmar  = [r["calmar"]  for r in sweep]
@@ -302,7 +316,7 @@ def _plot_analysis(res: dict):
     maxdd   = [abs(r["max_dd"]) * 100 for r in sweep]
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 9))
-    fig.suptitle(f"Risk-adjusted sizing — QQQ Δ{delta:.2f} calls on SPMO signal",
+    fig.suptitle(f"Risk-adjusted sizing — {label} Δ{delta:.2f} calls",
                  fontsize=12)
 
     # Top-left: Calmar vs budget
@@ -390,7 +404,7 @@ def _plot_analysis(res: dict):
 
     plt.tight_layout(rect=[0, 0.04, 1, 1])
     CHART_DIR.mkdir(exist_ok=True)
-    out = CHART_DIR / f"sizing_{date.today()}.png"
+    out = CHART_DIR / f"sizing_{res['ticker']}_{date.today()}.png"
     fig.savefig(out, dpi=110)
     plt.close(fig)
     print(f"\n  Chart saved to {out}\n")
@@ -404,6 +418,7 @@ if __name__ == "__main__":
     args    = sys.argv[1:]
     capital = INITIAL_CAPITAL
     delta   = 0.50
+    ticker  = SIGNAL_TICKER
 
     if "--capital" in args:
         idx     = args.index("--capital")
@@ -415,6 +430,11 @@ if __name__ == "__main__":
         delta = float(args[idx + 1])
         args  = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
 
-    res = analyze(target_delta=delta, capital=capital)
+    if "--ticker" in args:
+        idx    = args.index("--ticker")
+        ticker = args[idx + 1].upper()
+        args   = [a for i, a in enumerate(args) if i not in (idx, idx + 1)]
+
+    res = analyze(ticker=ticker, target_delta=delta, capital=capital)
     _print_analysis(res)
     _plot_analysis(res)
