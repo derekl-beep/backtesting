@@ -694,6 +694,61 @@ to 15%. Conservative (best Sharpe): 3%. Moderate (best Calmar): 15% — notably 
 Calmar than the SPMO/QQQ overlay's own sizing result (1.64 vs 1.29 at 15%), reinforcing SMH
 as a strong overlay candidate. Aggressive (best CAGR): 20%.
 
+### New tool: probabilistic regime signal — tested, does not improve on the hard flip — 2026-07-03
+
+Built `tools/regime_probability.py` — final item from the quant-rigor toolbox discussion.
+Every signal in this project is a hard binary flip (MA10 > MA200 → 2x, else 1x) — one day
+fully levered, the next (if the MA crosses) not, exactly the mechanism behind whipsaw
+stretches like Feb 2022's 7-day regime. Fit a logistic regression (implemented from scratch
+via `scipy.optimize`, no new dependency) on three simple technical features — MA gap %,
+RSI(14), MACD histogram — against the sign of the forward 21-day return, walk-forward
+(expanding window, same discipline as `tools.optimize`) so there's no lookahead. Compares
+scaling leverage continuously with confidence (quantized to 0.25 increments to keep
+rebalancing realistic) against the existing hard threshold.
+
+```
+python -m tools.regime_probability SPMO GLD SMH
+```
+
+**Model fit — in-sample accuracy 65-72% for SPMO/SMH (real, better than a 50% coin flip),
+but the OOS probability distribution is narrow across all three tickers:**
+
+| Ticker | OOS probability mean / std / range |
+|---|---|
+| SPMO | 0.69 / 0.07 / [0.56, 0.90] |
+| GLD  | 0.51 / 0.05 / [0.39, 0.65] — nearly uninformative, centered at 50/50 |
+| SMH  | 0.71 / 0.10 / [0.44, 0.99] — widest range of the three |
+
+**Strategy comparison — continuous confidence-scaling does not improve on the hard
+threshold for any of the three tickers:**
+
+| Ticker | | CAGR | Sharpe | MaxDD | Leverage changes |
+|---|---|---|---|---|---|
+| SPMO | Hard | 30.5% | 0.94 | -39.7% | 14 |
+| SPMO | Continuous | 31.5% | 0.92 | -50.4% | 27 |
+| GLD  | Hard | 25.4% | 0.95 | -39.6% | 20 |
+| GLD  | Continuous | 20.3% | 0.93 | -35.6% | 9 |
+| SMH  | Hard | 41.8% | 0.89 | -60.0% | 21 |
+| SMH  | Continuous | 38.4% | 0.84 | -69.3% | 122 |
+
+SPMO and SMH both show *worse* Sharpe and *worse* MaxDD under continuous scaling — the model's
+probabilities don't swing decisively low during real drawdowns (the narrow-range finding
+above), so the confidence-scaled leverage fails to de-risk as sharply as the hard 2x/1x flip
+does when it actually matters. SMH's case is the clearest: even with its widest probability
+range of the three, continuous scaling is worse on every metric *and* generates 6x more
+leverage changes (122 vs 21) — a high-volatility name crosses quantization boundaries far
+more often, meaning the "smoother" approach is paradoxically choppier in practice. GLD is
+the one partial exception (better MaxDD, but lower CAGR and Sharpe, and its probability model
+is barely informative at 0.51 mean/0.05 std to begin with, so this may just be noise).
+
+**Conclusion:** rejected as implemented. This is consistent with — and adds a third
+independent angle to — `tools.significance`'s finding that this project's tickers' specific
+MA-crossover timing isn't clearly distinguishable from random: a from-scratch statistical
+model fit directly to simple technical features also can't extract a probability signal
+discriminating enough to beat the simple hard threshold. Doesn't rule out a better model
+(different features, different horizon, an HMM instead of logistic regression) doing
+better — but this first, reasonably-principled attempt didn't.
+
 ### New tool: Value at Risk / Conditional VaR — 2026-07-03
 
 Built `tools/tail_risk.py` — third item from the quant-rigor toolbox discussion, layered

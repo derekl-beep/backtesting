@@ -246,6 +246,22 @@ number silently. Third independent confirmation (after the options bootstrap and
 Carlo) that SMH's tail risk is too severe for the margin engine — forward MaxDD VaR/CVaR
 sit around 75-83% even at the median simulated future. See RESEARCH.md for the full table.
 
+### Probabilistic regime signal (continuous confidence vs hard flip)
+```bash
+python -m tools.regime_probability              # all portfolio tickers
+python -m tools.regime_probability SPMO GLD SMH
+python -m tools.regime_probability SMH --horizon 21
+```
+Fits a walk-forward logistic regression (MA gap %, RSI, MACD histogram -> forward-return
+sign) as a continuous P(bull regime) alternative to the hard MA on/off flip, scaling
+leverage smoothly (1x-2x) instead of flipping discretely. **Tested and rejected** — for all
+three portfolio tickers, continuous confidence-scaling does not improve on the hard
+threshold (worse Sharpe and MaxDD for SPMO/SMH, and SMH generates 6x more leverage changes
+despite having the widest/most informative probability range of the three). Consistent with
+`tools.significance`'s finding from a different angle: a from-scratch statistical model on
+simple technical features can't extract a probability signal discriminating enough to beat
+the simple threshold. See RESEARCH.md for the full comparison table.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -314,6 +330,7 @@ tools/  (ETF — master branch)
   significance.py        circular-shift permutation test: is MA-crossover timing better than random?
   monte_carlo.py         GBM + block-bootstrap forward simulation: what could happen, not just what did
   tail_risk.py           VaR/CVaR: historical daily + Monte-Carlo-forward tail loss severity
+  regime_probability.py  walk-forward logistic regression: continuous P(bull) vs hard MA flip
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
