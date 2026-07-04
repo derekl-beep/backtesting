@@ -303,6 +303,28 @@ OOS underperformance narrows to ~-3.5%/year while drawdowns get meaningfully wor
 isn't significant either once the null is given the same leverage mechanism (p=0.179).
 Answers Roadmap open question #8. See research/strategy_experiments.md for full tables.
 
+### RSI-band mean reversion (for the macro/EM tickers rejected under momentum)
+```bash
+python -m tools.mean_reversion                     # all 10 rejected candidates
+python -m tools.mean_reversion EWJ EEM
+python -m tools.mean_reversion TLT --period 21
+python -m tools.mean_reversion FXI --significance   # + circular-shift test
+```
+Contrarian RSI-band entry/exit (latch in on an oversold dip, hold until overbought) on the
+10 macro/commodity/international ETFs already rejected under MA-crossover (EWJ, EEM, TLT,
+GDX, SLV, DBC, VNQ, HYG, FXI, EWZ — see research/etf_candidates.md). Deliberately 1x-in-
+trade/0x-cash — no persistent 2x leverage, since mean-reversion is a lower-conviction,
+shorter-duration trade than trend-following. **Mostly rejected, two inconclusive positives.**
+Walk-forward OOS results are mixed: DBC -11.1%, SLV -7.0%, GDX/VNQ -4.9%, EEM -3.0%, EWJ/EWZ
+roughly flat, HYG +0.4% (all vs buy-and-hold, avg/year across 9 folds) — only TLT (+4.8%)
+and FXI (+7.0%) show real positive OOS alpha, but neither clears significance (circular-
+shift test: TLT p=0.153/0.334, FXI p=0.109/0.161 for CAGR/Sharpe) — same "not statistically
+distinguishable from random timing" verdict as every MA-crossover ticker tested. Answers the
+Roadmap's mean-reversion-for-ETFs question. Building this caught and fixed a real, pre-
+existing bug in `signals/rsi.py`: a lookback window with zero losses computed RSI=0
+(maximally oversold) instead of the correct RSI=100 (maximally overbought) — backwards. See
+research/strategy_experiments.md for the full table and the bug writeup.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -374,6 +396,7 @@ tools/  (ETF — master branch)
   regime_probability.py  walk-forward logistic regression: continuous P(bull) vs hard MA flip
   bear_put_overlay.py    monthly cash-secured put selling during bear regimes (SPMO->QQQ shipped, SMH->SMH rejected)
   sector_rotation.py     cross-sectional momentum: rank/hold sector ETFs, walk-forward OOS + significance test -- tested and rejected
+  mean_reversion.py      RSI-band contrarian signal for macro/EM tickers rejected under momentum -- mostly rejected, TLT/FXI inconclusive
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
@@ -450,10 +473,17 @@ re-testing an idea. Update it whenever a backtest produces a clear finding.
 
 ## Roadmap
 
-**Mean-reversion for ETFs** — EWJ/EEM-type macro ETFs show near-zero alpha with MA crossover.
-A contrarian RSI or Bollinger Band strategy could capture their moves but requires a separate
-signal framework, different position sizing (no persistent 2x leverage), and independent
-walk-forward validation. Would be a new strategy module distinct from the stock mean_rev tool.
+**Mean-reversion for ETFs — built and validated; mostly rejected, 2026-07-06.** Built
+`signals/rsi_band.py` + `strategies/mean_reversion.py` (1x-in-trade/0x-cash, no persistent
+leverage) and `tools/mean_reversion.py` (walk-forward OOS param selection + a circular-shift
+significance test) for the 10 macro/commodity/international ETFs already rejected under
+MA-crossover (EWJ, EEM, TLT, GDX, SLV, DBC, VNQ, HYG, FXI, EWZ). Verdict: mostly negative
+OOS alpha (DBC -11.1%, SLV -7.0%, GDX/VNQ -4.9%/year vs B&H); only TLT (+4.8%) and FXI
+(+7.0%) show genuine OOS improvement, and neither is statistically significant (p=0.109-0.334
+across CAGR/Sharpe) — same "indistinguishable from random timing" verdict as every
+MA-crossover ticker tested elsewhere in this project. Caught and fixed a real, pre-existing
+bug in `signals/rsi.py` while building this: an uninterrupted-uptrend window (zero losses)
+computed RSI=0 instead of the correct RSI=100 — backwards. See research/strategy_experiments.md.
 
 **Sector rotation — built as a first-class module and validated; tested and rejected,
 2026-07-06.** The one-off 2026-07-03 exploratory backtest (see Roadmap history in

@@ -1,7 +1,8 @@
 # Strategy experiments
 
 Standalone strategy variants tested against CLAUDE.md's "Options strategies on the SPMO
-bull signal" roadmap list, plus one genuinely different momentum family (sector rotation).
+bull signal" roadmap list, plus two genuinely different strategy families (sector rotation,
+RSI-band mean reversion).
 
 ## Roadmap options strategies tested: spreads and covered calls rejected, bear puts shipped — 2026-07-03 / 2026-07-06
 
@@ -179,3 +180,75 @@ out-of-sample and isn't statistically distinguishable from random sector selecti
 this project's leverage mechanism on top doesn't fix the underlying OOS weakness; it just
 adds absolute return and drawdown in the same "leverage-timing effect, not signal skill"
 pattern documented in [methodology.md](methodology.md). Closes Roadmap open question #8.
+
+## RSI-band mean reversion for rejected macro/EM ETFs: mostly rejected, two inconclusive positives — 2026-07-06
+
+Closes the Roadmap's "Mean-reversion for ETFs" idea. Every ticker tested here (EWJ, EEM,
+TLT, GDX, SLV, DBC, VNQ, HYG, FXI, EWZ) was already rejected under MA-crossover momentum
+with near-zero or negative alpha (see [etf_candidates.md](etf_candidates.md)) — the
+hypothesis was that these don't trend cleanly enough for a momentum signal, but might have
+tradeable mean-reverting swings instead.
+
+**Built:** `signals/rsi_band.py` (stateful latch: enter on an oversold RSI dip, hold until
+RSI clears the overbought band — deliberately hysteretic so it doesn't flip right at the
+entry threshold), `strategies/mean_reversion.py` (1x in-trade / 0x cash, **no persistent 2x
+leverage** — mean-reversion is a lower-conviction, shorter-duration trade than the momentum
+strategy, so it doesn't carry margin), and `tools/mean_reversion.py` (walk-forward OOS param
+selection over a 4×4 oversold/overbought grid, same discipline as `tools.optimize`, plus a
+circular-shift significance test reimplemented locally since `tools.significance` is
+hardcoded to MA-crossover + the momentum strategy).
+
+**Real bug caught and fixed while building this:** `signals/rsi.py`'s `_rsi()` computed
+RSI=0 (maximally *oversold*) for a lookback window with zero losses (an uninterrupted
+uptrend) — exactly backwards; the correct value is RSI=100 (maximally *overbought*). The old
+code replaced a zero *loss* with infinity before dividing (`gain / loss.replace(0, inf)`),
+which computes `gain/inf → 0`, the opposite of letting RS itself go to infinity. Fixed by
+letting the division produce its natural inf/nan and handling the true zero-gain-and-zero-
+loss case (a perfectly flat window) as neutral (50) instead — see `tests/test_rsi.py` for
+the regression tests. This bug pre-dated this session's work and silently affected every
+existing user of `signals.rsi._rsi()`: `signals/rsi.py`'s own threshold `signal()` (used
+by `tools.optimize --signals rsi`, `tools.compare`, and conditionally `tools.signal`/
+`tools.portfolio` for any ticker with an `"rsi"` param — none currently, since the live
+SPMO/GLD portfolio is MA-only) and `tools/regime_probability.py`'s RSI feature. Practical
+impact on already-published findings is expected to be small: the bug only fires when a full
+14-day window has zero down days, rare in real daily price data (confirmed by rerunning the
+walk-forward table below before and after the fix — only one fold, VNQ 2026, changed by a
+few points). No golden test pinned the old (wrong) behavior, so nothing needed updating
+beyond the fix itself.
+
+**Walk-forward OOS results (avg vs buy-and-hold across 9 folds, 2018-2026):**
+
+| Ticker | Avg OOS vs B&H | Most consistent params |
+|---|---|---|
+| DBC | -11.1% | RSI14 30/75 (6/9 folds) |
+| SLV | -7.0% | RSI14 20/65 (7/9 folds) |
+| GDX | -4.9% | RSI14 20/65 (5/9 folds) |
+| VNQ | -4.9% | RSI14 20/75 (3/9 folds) |
+| EEM | -3.0% | RSI14 20/65 (7/9 folds) |
+| EWJ | -1.3% | RSI14 25/65 (6/9 folds) |
+| EWZ | -0.4% | RSI14 30/75 (8/9 folds) |
+| HYG | +0.4% | mixed, no clear winner |
+| TLT | **+4.8%** | mixed 20/65 & 25/65 (4/9 each) |
+| FXI | **+7.0%** | RSI14 20/65 (7/9 folds) |
+
+**Significance test (circular shift, 1000 shifts, on the two positive standouts):**
+- TLT: actual CAGR 5.9% vs random-timing median 4.2%, **p=0.153**; actual Sharpe 0.98 vs
+  median 0.84, **p=0.334**.
+- FXI: actual CAGR 8.2% vs random-timing median 4.5%, **p=0.109**; actual Sharpe 0.58 vs
+  median 0.40, **p=0.161**.
+
+Neither clears the conventional 0.05 bar. Both are directionally the best of the batch and
+FXI in particular shows unusually consistent param selection (RSI14 20/65 picked in 7 of 9
+folds) — genuinely more interesting than the other 8 tickers — but "best of a batch of 10"
+and "statistically significant" are different claims, and this is the same "indistinguishable
+from random timing of the same exposure" verdict `tools.significance` already found for every
+MA-crossover ticker tested (SPMO, GLD, SMH, SOXX, EFA) and `tools.sector_rotation` found for
+cross-sectional selection.
+
+**Conclusion: mostly rejected.** 8 of 10 candidates show flat-to-negative OOS alpha under
+RSI-band mean reversion, confirming the "these tickers don't trend cleanly enough for MA
+crossover" diagnosis doesn't automatically imply "so a contrarian signal must work instead" —
+mean reversion isn't a free alternative hypothesis, it has to earn its own validation the
+same way momentum did. TLT and FXI are the two exceptions worth remembering if either shows
+up again in future research (e.g. if bond or China-exposure ETFs get revisited), but neither
+is strong enough evidence on its own to add either to the deployed strategy set today.
