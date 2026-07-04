@@ -694,6 +694,49 @@ to 15%. Conservative (best Sharpe): 3%. Moderate (best Calmar): 15% — notably 
 Calmar than the SPMO/QQQ overlay's own sizing result (1.64 vs 1.29 at 15%), reinforcing SMH
 as a strong overlay candidate. Aggressive (best CAGR): 20%.
 
+### New tool: Value at Risk / Conditional VaR — 2026-07-03
+
+Built `tools/tail_risk.py` — third item from the quant-rigor toolbox discussion, layered
+directly on `tools.monte_carlo`. Every risk metric in this project until now is Sharpe
+(penalizes upside and downside vol symmetrically — wrong for a strategy built on convex
+payoffs) or MaxDD (one historical data point, silent about a future worse than what's
+already happened). VaR answers "there's a P% chance of losing more than X"; CVaR (Expected
+Shortfall) goes further — "*given* we're past that threshold, what's the average loss,"
+the metric real risk desks actually size capital against because it captures severity, not
+just frequency.
+
+**Two views:** historical daily VaR/CVaR on the actual deployed strategy's equity curve
+(backward-looking, no model assumptions), and forward-looking VaR/CVaR on the Monte Carlo
+simulated distribution (both GBM and block bootstrap) — on total return over the horizon,
+and separately on max drawdown, at 95% and 99% confidence.
+
+```
+python -m tools.tail_risk SPMO GLD SMH
+```
+
+**Results (5yr horizon, 300 sims/method for the Monte Carlo side):**
+
+| Ticker | Historical daily 95% VaR/CVaR | Historical daily 99% VaR/CVaR | MC MaxDD 95% VaR/CVaR (GBM) | MC MaxDD 99% VaR/CVaR (GBM) |
+|---|---|---|---|---|
+| SPMO | 3.3% / 5.2% | 6.2% / 8.7% | 59.1% / 62.4% | 65.8% / 68.0% |
+| GLD  | 2.7% / 4.4% | 5.6% / 7.8% | 51.8% / 56.8% | 61.7% / 63.5% |
+| SMH  | 5.6% / 8.4% | 9.5% / 13.5% | **75.1% / 79.3%** | **82.1% / 82.7%** |
+
+**SMH's tail is the standout, consistent with every prior finding about it.** Daily VaR/CVaR
+run ~1.7-2x SPMO/GLD's, and forward MaxDD VaR/CVaR sit firmly in "would definitely breach
+the -50% margin constraint" territory even at the *median* simulated future, let alone the
+tail — third independent confirmation (bootstrap → Monte Carlo → now VaR/CVaR) that SMH's
+volatility profile can't run under the margin engine at any reasonable confidence level.
+
+**A real statistical caveat this tool surfaces explicitly, not just in a footnote:** 99% VaR/
+CVaR needs far more Monte Carlo samples than 95% to be stable — the 1% tail of 300
+simulations is only ~3 observations, too few to trust. The tool prints an explicit warning
+whenever the 99% tail sample count is too small, rather than silently reporting a noisy
+number as if it were reliable. Also found the same "negative VaR" case the Monte Carlo tool
+surfaced (SMH block-bootstrap, 95% total return): the worst 5% of simulated 5-year outcomes
+is *still a net gain* — a legitimate result, just one that needs explicit "gain, not a loss"
+labeling so it doesn't read as broken output.
+
 ### New tool: Monte Carlo forward simulation — 2026-07-03
 
 Built `tools/monte_carlo.py` — second item from the quant-rigor toolbox discussion.

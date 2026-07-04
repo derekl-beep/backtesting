@@ -232,6 +232,20 @@ observed. First run: SPMO/GLD show the two methods agreeing reasonably (median C
 SMH regime — independent confirmation (via a completely different method) that SMH's
 volatility is too severe for the margin engine. See RESEARCH.md for the full readout.
 
+### Value at Risk / Conditional VaR
+```bash
+python -m tools.tail_risk              # all portfolio tickers
+python -m tools.tail_risk SPMO GLD SMH
+```
+VaR ("P% chance of losing more than X") and CVaR ("average loss given you're past that
+threshold" — the more conservative, severity-aware measure) computed two ways: historical
+daily on the deployed strategy's equity curve, and forward-looking on `tools.monte_carlo`'s
+simulated distribution (total return and MaxDD, 95%/99% confidence). Warns explicitly when
+too few Monte Carlo sims exist for a stable 99% tail estimate rather than reporting a noisy
+number silently. Third independent confirmation (after the options bootstrap and Monte
+Carlo) that SMH's tail risk is too severe for the margin engine — forward MaxDD VaR/CVaR
+sit around 75-83% even at the median simulated future. See RESEARCH.md for the full table.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -299,6 +313,7 @@ tools/  (ETF — master branch)
   portfolio_combined.py  margin legs + N simultaneous options overlays on one shared capital base
   significance.py        circular-shift permutation test: is MA-crossover timing better than random?
   monte_carlo.py         GBM + block-bootstrap forward simulation: what could happen, not just what did
+  tail_risk.py           VaR/CVaR: historical daily + Monte-Carlo-forward tail loss severity
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
