@@ -201,6 +201,22 @@ so a later overlay's dynamic budget sizing reflects earlier overlays' realized P
 run: margin + SPMO/QQQ + SMH/SMH together lifts CAGR 28.0%→35.0%, Sharpe 0.97→1.22, and
 *reduces* MaxDD to -26.3% (better than margin-only or either overlay alone). See RESEARCH.md.
 
+### Statistical significance of signal timing
+```bash
+python -m tools.significance              # all portfolio tickers
+python -m tools.significance SPMO GLD SMH
+python -m tools.significance SMH --resamples 5000
+```
+Circular-shift permutation test: rotates the signal's regime pattern by a random number of
+days (preserving block-length distribution and total time levered) and compares the actual
+strategy's CAGR/Sharpe to the resulting random-timing distribution. Answers "does this
+specific MA window beat random timing of the same exposure, or could the numbers be luck
+plus a rising market?" — a level deeper than the existing leverage-vs-signal-quality
+methodology finding. First run: **none of SPMO/GLD/SMH show p<0.05 significance** on CAGR
+or Sharpe — with ~9-13 regimes of history, none of this project's tickers can yet be
+statistically distinguished from random timing of the same exposure. See RESEARCH.md for
+the full readout and important caveats on what this null does and doesn't test.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -266,6 +282,7 @@ tools/  (ETF — master branch)
   options_bootstrap.py   bootstrap confidence intervals over historical regimes (win rate/RoP CI + forward projection)
   options_sensitivity.py delta x budget heatmap + first/second-half decay check for the options overlay
   portfolio_combined.py  margin legs + N simultaneous options overlays on one shared capital base
+  significance.py        circular-shift permutation test: is MA-crossover timing better than random?
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)

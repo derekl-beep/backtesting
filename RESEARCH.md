@@ -694,6 +694,61 @@ to 15%. Conservative (best Sharpe): 3%. Moderate (best Calmar): 15% — notably 
 Calmar than the SPMO/QQQ overlay's own sizing result (1.64 vs 1.29 at 15%), reinforcing SMH
 as a strong overlay candidate. Aggressive (best CAGR): 20%.
 
+### New tool: statistical significance of MA-crossover timing — 2026-07-03
+
+Built `tools/significance.py` — a quant-rigor gap flagged when discussing what tools would
+help a researcher "make correct predictions and decisions based on math and statistics
+models": every finding in this log compares point estimates, never asks whether the
+specific timing chosen by the MA crossover beats *random* timing of the same amount of
+leverage exposure, or whether the historical numbers could be luck plus a rising market.
+
+**Method:** circular-shift permutation test. Rotate the signal's 0/1 regime pattern by a
+random number of days (wrapping around) — this preserves the exact regime-block-length
+distribution and total time levered, randomizing only *when* those blocks land on the
+calendar. Run the same leverage strategy against each shift; the fraction of random shifts
+that do at least as well as the actual timing is a one-sided p-value. Validated on synthetic
+data first: a hand-built series with a genuine, strong block-aligned edge scores p<0.10
+(confirms the method has real power), before trusting it on real tickers.
+
+```
+python -m tools.significance SPMO GLD SMH
+```
+
+**Results (1000 shifts):**
+
+| Ticker | Actual CAGR | CAGR percentile | p (CAGR) | Actual Sharpe | Sharpe percentile | p (Sharpe) |
+|---|---|---|---|---|---|---|
+| SPMO (MA10/200) | 29.3% | 66th | 0.344 | 0.94 | 92nd | 0.082 |
+| GLD (MA20/100)  | 20.4% | 88th | 0.124 | 0.78 | 83rd | 0.170 |
+| SMH (MA50/100)  | 58.2% | 85th | 0.152 | 1.10 | 90th | 0.104 |
+
+**None of the three tickers show p<0.05 significance on CAGR or Sharpe.** SPMO's timing
+sits at only the 66th percentile of random-timing CAGR outcomes (p=0.344) — more than a
+third of random shifts of the *same* regime-block structure do at least as well. Sharpe
+p-values run consistently lower than CAGR p-values across all three (0.082, 0.170, 0.104),
+suggesting the specific timing helps smooth volatility somewhat more than it boosts raw
+return, but none clear the conventional 0.05 bar; SPMO's Sharpe result (p=0.082) is the
+closest to borderline-significant of the nine numbers tested.
+
+**What this means:** this goes a level deeper than the existing "reported alpha is a
+leverage-timing effect" methodology finding. That finding established the edge comes from
+*adding leverage during confirmed uptrends* rather than from stock-picking skill. This test
+asks whether the *specific* MA10/200 (or MA20/100, MA50/100) rule's timing choice is better
+than other timing of the same exposure fraction — and the honest answer, with the sample
+size available (~10 years, effectively 9-13 quasi-independent regime events), is: not
+clearly. A large share of the strategy's edge may come simply from the *fact* of having a
+reasonably-distributed on/off leverage schedule during a period of generally positive
+drift, not from this exact rule's predictive skill over alternative timings.
+
+**Important caveat on the null's strength:** circular shift is a relatively generous null —
+it only tests "this timing vs other timing of the same block-length distribution," not
+"timing vs no timing at all" (that's the separate, already-answered question from the
+Methodology entry: 1x cash-timing loses to buy-and-hold, so *some* timing discipline plus
+leverage is doing real work vs a naive always-2x approach). It also inherits the small-
+sample problem that already limits Kelly and the options bootstrap in this log — with only
+~9-13 regimes, statistical power is genuinely limited, and this should be read as "we can't
+yet distinguish this rule from noise," not "this rule is definitely noise."
+
 ### Roadmap options strategies tested: spreads and covered calls rejected, bear puts modestly positive — 2026-07-03
 
 Tested three of the six roadmap options strategies (see CLAUDE.md's "Options strategies on
