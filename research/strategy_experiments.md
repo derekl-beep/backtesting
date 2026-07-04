@@ -101,14 +101,81 @@ if not caught by a sanity check on the output magnitude.
 | 12mo | 1 | 16.5% | 0.80 | -17.6% | +1.3% |
 | 12mo | 3 | 14.2% | **0.98** | -15.8% | -1.0% |
 
-**Conclusion:** every variant roughly halves SPY's drawdown (-15% to -21% vs -33.7%) with
-CAGR in the same ballpark as buy-and-hold (slightly below for most variants, slightly above
-for 12-month/top-1). Best risk-adjusted variant is 12-month lookback, top-3 (Sharpe 0.98 >
-SPY's 0.88). This is a genuinely different strategy shape than everything else in this
-project: a **lower-volatility, lower-drawdown alternative** at 1x exposure, not a
-higher-return leveraged play. Not yet tested: whether layering the same 2x-when-confirmed
-leverage mechanism established elsewhere in this project on top of sector rotation would
-turn "comparable CAGR, better Sharpe/drawdown" into genuine outperformance — a natural next
-step if this strategy family gets pursued further. Not yet added to the portfolio or given
-its own tool; this is exploratory confirmation the strategy family works reasonably, not a
-recommendation to deploy it.
+**Conclusion (superseded — see below):** every variant roughly halves SPY's drawdown (-15% to
+-21% vs -33.7%) with CAGR in the same ballpark as buy-and-hold. This full-period, in-sample
+table was flagged at the time as "exploratory confirmation, not a recommendation to deploy"
+— building it into a real, walk-forward-validated module (below) shows the in-sample picture
+was optimistic in exactly the way `tools.optimize`'s IWM lesson warned about (see
+[etf_candidates.md](etf_candidates.md)): full-period alpha that doesn't survive genuine OOS
+testing.
+
+## Sector rotation, validated: walk-forward OOS underperforms SPY, not statistically significant — 2026-07-06
+
+Promoted the exploratory backtest above into `tools/sector_rotation.py` — a real module with
+the same rigor gauntlet every other strategy in this project has been run through: walk-
+forward OOS param selection (same discipline as `tools.optimize`: pick the (lookback, top_n)
+combo with the best Sharpe using only data through the prior year, then evaluate OOS), a
+permutation significance test (the cross-sectional analog of `tools.significance` — the null
+is "N random tickers each month" instead of "random timing of the same exposure"), and the
+open leverage-layering question actually tested.
+
+**Building this caught a real, subtle bug before it produced a false finding:** the first
+draft of the significance test applied the 2x-when-confirmed leverage overlay to the actual
+strategy but not to the random-selection null. That comparison came back "CAGR
+significant, p=0.000" — which would have been wrong. Leverage mechanically raises CAGR in a
+rising market regardless of which tickers get picked (this project's own
+[methodology.md](methodology.md) finding, applied here to a new strategy family); the null
+has to apply the *identical* per-ticker leverage mechanism or it's comparing a leveraged
+result against an unleveraged one, not testing ranking skill. Fixed by precomputing each
+window's per-ticker growth factors with leverage applied identically on both sides before
+sampling. A regression test (`test_significance_test_null_applies_the_same_leverage_as_actual`)
+locks this in.
+
+**Walk-forward OOS results (2018-2026, 9 folds, unleveraged):**
+
+| Year | Selected params | OOS CAGR | OOS Sharpe | OOS MaxDD | vs SPY |
+|---|---|---|---|---|---|
+| 2018 | 12mo/top-3 | -7.8% | -0.33 | -19.9% | -2.5% |
+| 2019 | 3mo/top-1 | 14.5% | 1.06 | -8.9% | -16.8% |
+| 2020 | 6mo/top-3 | 28.3% | 0.90 | -31.5% | +11.0% |
+| 2021 | 6mo/top-3 | 20.9% | 1.16 | -11.3% | -9.7% |
+| 2022 | 6mo/top-3 | 2.4% | 0.22 | -14.5% | +21.2% |
+| 2023 | 12mo/top-1 | 8.2% | 0.48 | -18.6% | -18.8% |
+| 2024 | 12mo/top-1 | 15.7% | 0.86 | -14.0% | -10.0% |
+| 2025 | 12mo/top-1 | 11.4% | 0.68 | -14.1% | -6.9% |
+| 2026 | 12mo/top-1 | -5.6% | -0.06 | -23.5% | -26.1% |
+
+Average vs SPY across all 9 folds: **-6.5%/year**. The full-period in-sample table above
+looked "comparable to slightly better" than SPY; genuine walk-forward OOS selection (params
+chosen using only prior data, never the year being tested) reverses that — sector rotation
+underperforms buy-and-hold in 7 of 9 folds. 2020 and 2022 are the only folds where it wins,
+both broad-market-stress years where being selectively out of the worst sectors helped, but
+that's not enough to make the strategy work on average.
+
+**Significance test (12mo/top-3, 1000 shifts, unleveraged):** actual CAGR 15.8% vs
+random-selection median 12.9%, **p=0.118**; actual Sharpe 0.89 vs median 0.75, **p=0.109**.
+Neither clears the conventional 0.05 bar — the specific trailing-return ranking rule is not
+distinguishable from picking 3 random sector ETFs each month. This is the same pattern
+`tools.significance` already found for every time-series MA-crossover ticker tested
+(SPMO, GLD, SMH, SOXX, EFA) — extended here to a structurally different (cross-sectional)
+momentum mechanism, with the same conclusion.
+
+**Leverage overlay (research/open_questions.md #8 — does 2x-when-confirmed-strong turn
+"comparable CAGR, better risk profile" into genuine outperformance?): no.** Layering the
+usual MA10/100-confirmed 2x leverage onto each held ticker (full-period, unleveraged
+12mo/top-3 baseline CAGR 15.8% → **24.1%** leveraged, Sharpe roughly flat 0.89 → 0.88, MaxDD
+worse -30.3% → -37.4%) raises absolute CAGR the same way leverage always does in this
+project, but the walk-forward OOS picture doesn't improve in the way that would matter:
+average OOS vs SPY narrows from -6.5%/year to **-3.5%/year**, still negative, while
+individual-fold MaxDD gets meaningfully worse (-43.5% in 2026, -38.9% in 2020, vs -23.5% and
+-31.5% unleveraged). And once the significance-test null is given the identical leverage
+mechanism (the bug-fix above), the leveraged version isn't significant either: p=0.179
+(CAGR), p=0.313 (Sharpe).
+
+**Conclusion: rejected, both leveraged and unleveraged.** Sector rotation is a genuinely
+different momentum mechanism from everything else in this project, but rigorous validation
+— not just the full-period in-sample table — shows it underperforms simple SPY buy-and-hold
+out-of-sample and isn't statistically distinguishable from random sector selection. Layering
+this project's leverage mechanism on top doesn't fix the underlying OOS weakness; it just
+adds absolute return and drawdown in the same "leverage-timing effect, not signal skill"
+pattern documented in [methodology.md](methodology.md). Closes Roadmap open question #8.

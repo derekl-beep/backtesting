@@ -282,6 +282,27 @@ the 2022 bear stretch than the original informal test suggested; see research/st
 blows out to -65.2% for only +0.1% CAGR lift — the same "too volatile for this mechanism"
 conclusion as SMH's margin-engine rejection, now confirmed for a third options structure.
 
+### Sector rotation (cross-sectional momentum)
+```bash
+python -m tools.sector_rotation                       # backtest at the default 12mo/top-3
+python -m tools.sector_rotation --lookback 6 --top-n 1
+python -m tools.sector_rotation --leverage             # + 2x-when-confirmed overlay per holding
+python -m tools.sector_rotation --walk-forward         # OOS param selection, same discipline as tools.optimize
+python -m tools.sector_rotation --significance         # permutation test vs random ticker selection
+```
+Rank the 9 SPDR sector ETFs by trailing return each month, hold the top N, rebalance
+monthly — the *other* classic momentum family (cross-sectional/relative-strength) vs every
+other strategy in this project (single-ticker time-series MA crossover). **Tested and
+rejected.** Walk-forward OOS-selected params underperform SPY buy-and-hold by ~6.5%/year on
+average (9 folds, 2018-2026) even though the full-period in-sample table looks
+"comparable to slightly better" — the same in-sample-vs-OOS trap `tools.optimize` exists to
+catch. The permutation significance test (null: N random tickers/month, same universe and
+rebalance calendar) agrees: p=0.118 (CAGR), p=0.109 (Sharpe), not significant. Layering the
+usual 2x-when-confirmed-strong leverage overlay onto each held ticker doesn't rescue it —
+OOS underperformance narrows to ~-3.5%/year while drawdowns get meaningfully worse, and
+isn't significant either once the null is given the same leverage mechanism (p=0.179).
+Answers Roadmap open question #8. See research/strategy_experiments.md for full tables.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -352,6 +373,7 @@ tools/  (ETF — master branch)
   tail_risk.py           VaR/CVaR: historical daily + Monte-Carlo-forward tail loss severity
   regime_probability.py  walk-forward logistic regression: continuous P(bull) vs hard MA flip
   bear_put_overlay.py    monthly cash-secured put selling during bear regimes (SPMO->QQQ shipped, SMH->SMH rejected)
+  sector_rotation.py     cross-sectional momentum: rank/hold sector ETFs, walk-forward OOS + significance test -- tested and rejected
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
@@ -433,14 +455,22 @@ A contrarian RSI or Bollinger Band strategy could capture their moves but requir
 signal framework, different position sizing (no persistent 2x leverage), and independent
 walk-forward validation. Would be a new strategy module distinct from the stock mean_rev tool.
 
-**Leverage on sector rotation** — cross-sectional relative-strength sector rotation (rank 9
-SPDR sectors by trailing return, hold top N, rebalance monthly) was tested 2026-07-03 at 1x
-exposure: roughly halves SPY's drawdown with comparable-to-slightly-better Sharpe, but CAGR
-is in the same ballpark as buy-and-hold, not the outsized returns the leveraged momentum
-strategy shows. Untested: does layering the same "2x when confirmed strong" leverage
-mechanism used elsewhere in this project on top of sector rotation turn "comparable CAGR,
-better risk profile" into genuine outperformance? See research/strategy_experiments.md for
-the full backtest.
+**Sector rotation — built as a first-class module and validated; tested and rejected,
+2026-07-06.** The one-off 2026-07-03 exploratory backtest (see Roadmap history in
+research/strategy_experiments.md) is now `tools/sector_rotation.py`: real walk-forward OOS
+param selection (same discipline as `tools.optimize`), a permutation significance test (the
+cross-sectional analog of `tools.significance` — null is "N random tickers/month" instead of
+"random timing"), and the leverage-layering question (open question #8) actually answered.
+Verdict: **rejected.** Walk-forward OOS-selected params underperform SPY buy-and-hold by an
+average of ~6.5%/year across 9 folds (2018-2026) — the in-sample full-period table looked
+"comparable to slightly better," but proper OOS validation flips that. The permutation test
+confirms it: p=0.118 (CAGR), p=0.109 (Sharpe) — not significant, indistinguishable from
+picking 3 random sector ETFs each month. Layering the 2x-when-confirmed-strong leverage
+overlay doesn't fix this — OOS underperformance narrows only to ~-3.5%/year while MaxDD gets
+meaningfully worse (up to -43.5% in one fold), and once the significance test's null is
+given the *same* leverage mechanism (an apples-to-apples comparison — leverage alone raising
+CAGR isn't "ranking skill", see research/methodology.md), the leveraged version isn't
+significant either (p=0.179). See research/strategy_experiments.md for the full tables.
 
 **Web UI — discussed 2026-07-03, not yet scoped or built.** All tooling today is CLI +
 PNG charts + a growing `research/` log. Discussed whether a web UI would help: verdict
