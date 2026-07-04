@@ -88,6 +88,35 @@ def strike_for_delta(S, T, r, sigma, target_delta):
     return (lo + hi) / 2
 
 
+def bs_put(S, K, T, r, sigma):
+    """Black-Scholes put price via put-call parity: P = C - S + K*e^(-rT)."""
+    if T <= 0 or sigma <= 0:
+        return max(K - S, 0.0)
+    return bs_call(S, K, T, r, sigma) - S + K * math.exp(-r * T)
+
+
+def bs_put_delta(S, K, T, r, sigma):
+    """Put delta (range -1..0) = call delta - 1."""
+    return bs_delta(S, K, T, r, sigma) - 1.0
+
+
+def strike_for_delta_put(S, T, r, sigma, target_delta):
+    """
+    Binary search for the strike giving a put the target delta.
+    target_delta should be negative (e.g. -0.30 for an OTM put ~30-delta).
+    Put delta decreases (more negative) as K increases, same monotonic
+    direction as strike_for_delta's call case, so the search logic mirrors it.
+    """
+    lo, hi = S * 0.01, S * 3.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if bs_put_delta(S, mid, T, r, sigma) > target_delta:
+            lo = mid
+        else:
+            hi = mid
+    return (lo + hi) / 2
+
+
 # ---------------------------------------------------------------------------
 # Regime extraction
 # ---------------------------------------------------------------------------
@@ -108,6 +137,16 @@ def _get_regimes(signal: pd.Series):
         end = later_ends[0] if later_ends else signal.index[-1]
         regimes.append((start, end))
     return regimes
+
+
+def _get_bear_regimes(signal: pd.Series):
+    """
+    Return list of (start, end) dates for each bear stretch (signal=0) --
+    the inverse of _get_regimes. Implemented by flipping the signal and
+    reusing the same start/end extraction logic, so the two functions can
+    never disagree about where a regime boundary falls.
+    """
+    return _get_regimes(1 - signal)
 
 
 # ---------------------------------------------------------------------------
@@ -323,6 +362,111 @@ def simulate_regime_with_rolls(entry_date, exit_date, qqq_prices, vix_prices,
         "total_pnl":         round(total_pnl, 2),
         "return_on_premium": round(total_pnl / total_prem, 4) if total_prem else 0,
         "regime_qqq_return": round(regime_qqq_ret, 4),
+        "capital_start":     round(capital, 2),
+        "capital_end":       round(current_cash, 2),
+    }
+    return sub_trades, aggregate
+
+
+CYCLE_DTE = 30   # monthly cash-secured-put cycle length (calendar days)
+
+
+def simulate_bear_regime_puts(entry_date, exit_date, prices, iv_prices,
+                              target_delta, budget_frac, capital, iv_shock=0.0,
+                              cycle_days=CYCLE_DTE):
+    """
+    Sell monthly cash-secured OTM puts (target_delta negative, e.g. -0.30)
+    for the duration of one bear stretch. Each cycle: sell a `cycle_days`-
+    tenor put sized so premium collected is `budget_frac` of current cash,
+    then resolve at cycle end -- assigned (pay intrinsic value) or expires
+    worthless (keep the premium). Mirrors simulate_regime_with_rolls' cash-
+    flow bookkeeping style, mirrored for a short (premium-collecting)
+    position instead of a long one.
+    """
+    dates = prices.index
+    iv_ffill = iv_prices.reindex(dates, method="ffill")
+    T = cycle_days / 365.0
+
+    sub_trades = []
+    current_cash = float(capital)
+    cycle_start = pd.Timestamp(entry_date)
+    regime_end = pd.Timestamp(exit_date)
+
+    while cycle_start < regime_end:
+        cycle_end = min(cycle_start + pd.Timedelta(days=cycle_days), regime_end)
+
+        si = dates.searchsorted(cycle_start)
+        xi = dates.searchsorted(cycle_end)
+        if si >= len(dates):
+            break
+        si = min(si, len(dates) - 1)
+        xi = min(xi, len(dates) - 1)
+        start_ts = dates[si]
+        end_ts   = dates[xi]
+        if start_ts >= end_ts:
+            break
+
+        S_entry = float(prices.iloc[si])
+        S_exit  = float(prices.iloc[xi])
+
+        # iv_prices is percent scale (^VIX/^GVZ/iv_proxy_series convention)
+        iv_val = float(iv_ffill.iloc[si])
+        sigma  = max(iv_val / 100.0 * (1 + iv_shock), 0.05)
+        K = strike_for_delta_put(S_entry, T, RISK_FREE_RATE, sigma, target_delta)
+
+        price_put = bs_put(S_entry, K, T, RISK_FREE_RATE, sigma)
+        if price_put < 0.01:
+            cycle_start = end_ts + pd.Timedelta(days=1)
+            continue
+
+        budget  = current_cash * budget_frac
+        n_contr = int(budget / (price_put * 100))
+        if n_contr < 1:
+            # budget can't cover meaningful premium on even one contract --
+            # skip the cycle rather than silently overspending past budget_frac
+            cycle_start = end_ts + pd.Timedelta(days=1)
+            continue
+
+        premium_received = n_contr * price_put * 100 * (1 - SPREAD_COST)
+        assigned = S_exit < K
+        payout = n_contr * max(K - S_exit, 0) * 100 * (1 + SPREAD_COST)
+        pnl = premium_received - payout
+        current_cash += pnl
+
+        sub_trades.append({
+            "entry_date":        str(start_ts.date()),
+            "exit_date":         str(end_ts.date()),
+            "days_held":         (end_ts - start_ts).days,
+            "S_entry":           round(S_entry, 2),
+            "S_exit":            round(S_exit, 2),
+            "strike_K":          round(K, 2),
+            "delta_at_entry":    round(bs_put_delta(S_entry, K, T, RISK_FREE_RATE, sigma), 2),
+            "iv_at_entry":       round(sigma, 4),
+            "n_contracts":       n_contr,
+            "premium_received":  round(premium_received, 2),
+            "assigned":          bool(assigned),
+            "payout":            round(payout, 2),
+            "pnl":               round(pnl, 2),
+            "return_on_premium": round(pnl / premium_received, 4),
+        })
+
+        cycle_start = end_ts + pd.Timedelta(days=1)
+
+    if not sub_trades:
+        return [], None
+
+    total_prem = sum(t["premium_received"] for t in sub_trades)
+    total_pnl  = sum(t["pnl"]              for t in sub_trades)
+    n_assigned = sum(1 for t in sub_trades if t["assigned"])
+
+    aggregate = {
+        "entry_date":        str(pd.Timestamp(entry_date).date()),
+        "exit_date":         str(regime_end.date()),
+        "n_cycles":          len(sub_trades),
+        "n_assigned":        n_assigned,
+        "total_premium":     round(total_prem, 2),
+        "total_pnl":         round(total_pnl, 2),
+        "return_on_premium": round(total_pnl / total_prem, 4) if total_prem else 0,
         "capital_start":     round(capital, 2),
         "capital_end":       round(current_cash, 2),
     }

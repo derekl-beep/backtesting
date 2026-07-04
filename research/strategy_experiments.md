@@ -3,7 +3,7 @@
 Standalone strategy variants tested against CLAUDE.md's "Options strategies on the SPMO
 bull signal" roadmap list, plus one genuinely different momentum family (sector rotation).
 
-## Roadmap options strategies tested: spreads and covered calls rejected, bear puts modestly positive — 2026-07-03
+## Roadmap options strategies tested: spreads and covered calls rejected, bear puts shipped — 2026-07-03 / 2026-07-06
 
 Tested three of the six roadmap options strategies with real data, rolling 30-DTE mechanics
 matching the shipped overlay's methodology (see [options_overlay.md](options_overlay.md)).
@@ -33,19 +33,46 @@ wins from choppy/flat months. Same root cause as the spread rejection: this stra
 expected value is concentrated in rare large up-moves, and selling calls against the
 position caps exactly those.
 
-**3. Sell cash-secured puts during bear regimes — modestly positive, keep as a minor
-enhancement.** Sold monthly Δ-0.30 OTM puts on QQQ during all 9 SPMO bear stretches (32
-monthly cycles total), using a new `_get_bear_regimes()` helper (inverse of `_get_regimes`).
-Result: CAGR 28.0% → **28.4%** (+0.4%), Sharpe 0.97 → 1.00, MaxDD -35.8% → -36.5% (very
-slightly worse). 25% assignment rate; worst cycles cluster in the 2022 bear stretch
-(-$20,133 worst single cycle) but don't overwhelm the accumulated premium from
-shorter/milder bear stretches. Unlike the two rejections above, this doesn't cap an existing
-winning position's upside — it's a standalone premium-harvesting overlay during periods the
-strategy is already out of the market. Modest but real improvement; worth adding as a minor
-enhancement if the operational overhead (managing cash-secured puts during bear stretches)
-is acceptable. Real tail risk in a sharp, sustained bear market remains — 2022 was the
-roughest test case in this history and it held up, but a longer/deeper bear regime than any
-seen 2016-2026 could look worse.
+**3. Sell cash-secured puts during bear regimes — originally tested ad-hoc, 2026-07-03;
+shipped as a real tool `tools/bear_put_overlay.py`, 2026-07-06.** Sold monthly Δ-0.30 OTM
+puts on QQQ during all 9 SPMO bear stretches (32 monthly cycles total), using a new
+`_get_bear_regimes()` helper (inverse of `_get_regimes`, now a real function in
+`tools/options_backtest.py`, tested to be an exact partition of the timeline with the bull
+extractor). Unlike items #1/#2, this doesn't cap an existing winning position's upside — it's
+a standalone premium-harvesting overlay during periods the strategy is already out of the
+market.
+
+**Shipped numbers (own capital-scaled sizing, `--combined`):** CAGR 28.0% → **28.1%**
+(+0.2%), Sharpe 0.97 → 0.98, MaxDD **-35.8% → -41.1%** (worse, not the roughly-flat -36.5%
+the original informal test found). Standalone (`tools.bear_put_overlay`, $100K flat
+capital per regime): 9/9 bear regimes traded, 32 cycles, 25% assignment rate — both numbers
+match the original ad-hoc test exactly — **+28% net on premium** ($88,409 premium,
+$+24,474 P&L).
+
+**Why the combined MaxDD differs from the original informal number:** the shipped tool sizes
+each cycle's premium to `budget_frac` of *current portfolio equity* (same dynamic-sizing
+discipline used everywhere else in this project, see [options_overlay.md](options_overlay.md)),
+not a fixed dollar budget. By the time the 2022 bear stretch arrives the portfolio is much
+larger, so assignment payouts during that regime are proportionally larger too — a real
+effect of using the project's standard sizing convention, not a bug. Read the shipped
+-41.1% as the more trustworthy number; the original -36.5% was a smaller, informal test that
+didn't use equity-proportional sizing.
+
+**Extension tested: SMH signal → SMH puts — rejected, 2026-07-06.** Tried the identical
+mechanism on SMH's own bear regimes (11 regimes, 36 cycles). Result: net **-5% on premium**
+standalone (one regime, 2018-2019, lost **-395%** of its premium — a Δ-0.30 put still gets
+blown through when the underlying is this volatile), and combined with the margin legs,
+MaxDD balloons to **-65.2%** (from -35.8% baseline) for only **+0.1%** CAGR lift. Sharpe
+actually drops (0.97 → 0.83). This is the same "too volatile for this mechanism" conclusion
+as SMH's margin-engine rejection (see [etf_candidates.md](etf_candidates.md)) and its
+covered-call-equivalent risk (item #2 above), now confirmed for a third options structure:
+SMH's edge only survives in a strictly long, capped-downside form (the naked call overlay),
+never in anything that sells premium against its own volatility.
+
+Real tail risk in a sharp, sustained bear market remains for the QQQ version even though it
+shipped positive — 2022 was the roughest historical test case and it held up, but a
+longer/deeper bear regime than any seen 2016-2026 could look worse, and the SMH result above
+is a concrete demonstration of what "worse" can look like on a more volatile underlying.
 
 ## Sector rotation (cross-sectional relative strength) — a genuinely different momentum family, 2026-07-03
 

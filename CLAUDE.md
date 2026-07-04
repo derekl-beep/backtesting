@@ -262,6 +262,26 @@ despite having the widest/most informative probability range of the three). Cons
 simple technical features can't extract a probability signal discriminating enough to beat
 the simple threshold. See research/quant_toolbox.md for the full comparison table.
 
+### Bear-regime put-selling overlay
+```bash
+python -m tools.bear_put_overlay                    # SPMO signal -> QQQ puts (shipped default)
+python -m tools.bear_put_overlay --ticker SMH        # SMH signal -> SMH puts
+python -m tools.bear_put_overlay --delta -0.20 --budget 0.05
+python -m tools.bear_put_overlay --combined          # margin + bear-put overlay equity curve
+```
+Sells monthly cash-secured OTM puts (default Δ-0.30) during every stretch the signal is
+bearish — unlike covered calls or bull spreads (both rejected, see below), this doesn't cap
+the long position's upside since the strategy is already flat/out during a bear regime.
+**Shipped, real tool** (previously only an ad-hoc tested finding). SPMO signal -> QQQ puts:
+9/9 historical bear regimes traded, 32 cycles, 25% assignment rate, +28% net on premium,
+combined with the margin legs: CAGR 28.0%→28.1%, Sharpe 0.97→0.98, MaxDD -35.8%→-41.1%
+(worse, not flat — the fresh implementation's own capital-scaled sizing draws down more on
+the 2022 bear stretch than the original informal test suggested; see research/strategy_experiments.md).
+**SMH signal -> SMH puts: rejected.** SMH's own volatility blows through a Δ-0.30 put
+(-395% RoP in one 2018-2019 regime), net negative on premium standalone, and combined MaxDD
+blows out to -65.2% for only +0.1% CAGR lift — the same "too volatile for this mechanism"
+conclusion as SMH's margin-engine rejection, now confirmed for a third options structure.
+
 ### Risk-adjusted sizing analysis
 ```bash
 python -m tools.sizing
@@ -331,6 +351,7 @@ tools/  (ETF — master branch)
   monte_carlo.py         GBM + block-bootstrap forward simulation: what could happen, not just what did
   tail_risk.py           VaR/CVaR: historical daily + Monte-Carlo-forward tail loss severity
   regime_probability.py  walk-forward logistic regression: continuous P(bull) vs hard MA flip
+  bear_put_overlay.py    monthly cash-secured put selling during bear regimes (SPMO->QQQ shipped, SMH->SMH rejected)
   sizing.py              risk-adjusted sizing: Calmar/Sharpe vs budget fraction, 3 tier recommendations
   optimize.py            per-ticker walk-forward optimizer
   portfolio_optimize.py  joint portfolio-level optimizer (sweeps all ticker combos together)
@@ -477,14 +498,15 @@ upfront cost — effectively free leverage when premiums net to zero. Risk: shor
 uncapped downside if regime fails (same concern as naked put selling). Backtest: simulate
 entry/exit at regime boundaries; model put assignment risk on losing regimes.
 
-**6. Sell puts during bear regimes — tested, modestly positive, 2026-07-03.** Selling
-monthly Δ-0.30 puts on QQQ during all 9 SPMO bear stretches: CAGR 28.0%→28.4%, Sharpe
-0.97→1.00, MaxDD roughly flat (-35.8%→-36.5%). Unlike items #1/#2, this doesn't cap an
-existing winning position — it's a standalone premium-harvesting overlay during periods
-already out of the market. Real but modest; 2022 was the roughest historical test and held
-up, though a longer/deeper bear regime than any seen 2016-2026 could look worse. See
-research/strategy_experiments.md. Worth adding as a minor enhancement if the operational
-overhead is acceptable.
+**6. Sell puts during bear regimes — shipped as `tools/bear_put_overlay.py`, 2026-07-06.**
+Selling monthly Δ-0.30 puts on QQQ during all 9 SPMO bear stretches: 32 cycles, 25%
+assignment rate, +28% net on premium; combined with the margin legs, CAGR 28.0%→28.1%,
+Sharpe 0.97→0.98, MaxDD -35.8%→-41.1% (worse, not flat — see research/strategy_experiments.md
+for why the real tool's numbers differ from the original ad-hoc test). Unlike items #1/#2,
+this doesn't cap an existing winning position — it's a standalone premium-harvesting overlay
+during periods already out of the market. Tried the same mechanism on SMH's own bear
+regimes and **rejected it** — SMH's volatility blows through a Δ-0.30 put (one regime lost
+395% of its premium), and combined MaxDD balloons to -65.2% for negligible CAGR gain.
 
 **Implementation notes:**
 - `tools/options_backtest.py` already has the BS pricer, VIX IV proxy, regime extractor, and
