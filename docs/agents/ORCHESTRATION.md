@@ -40,26 +40,33 @@ Skills exist for review workflows: `/code-review` (bug hunt on the current diff)
 session's available-skills list before invoking; never guess a skill name.
 
 **Cost note (honesty):** on this plan, each spawned agent starts cold and re-derives
-context — spawning is the expensive path. The thresholds below exist so you delegate when
-the *raw material* would pollute the main context, and not otherwise. Delegating a task you
-could do with 3 tool calls wastes more than it saves.
+context — spawning is the expensive path, not the safe default. Every one of these docs
+being read at session start is itself a cost; loading a subagent to redo work the commander
+could do directly compounds it. The single most common way this system burns a session's
+budget is spawning several agents to build one ordinary feature. Default to zero subagents
+per task; the thresholds below exist for the real exceptions, not as a menu to reach for.
 
 ## Commander role: synthesize, don't trawl
 
 The main conversation's context is the scarcest resource in a session. Its job is decisions
-and synthesis. Concrete thresholds — delegate when a task crosses ANY of these:
+and synthesis. A task spanning several files or several steps is still **one task** —
+"implement feature X" is not four subtasks for four subagents just because it touches four
+files. Delegate only when a task crosses ANY of these (deliberately strict) thresholds:
 
 | Task | Do it yourself when | Delegate when |
 |---|---|---|
-| Reading code | ≤ 5 files, or you know exactly which lines | > 5 files, or you'd read whole files to find one thing → `Explore` |
-| Searching the repo | 1–2 targeted greps | You can't name the file/symbol and expect > 2 search rounds → `Explore` |
-| Web research | Single known URL | Open-ended ("current yfinance rate limits") → `general-purpose` with WebSearch |
-| Editing files | ≤ 3 files, non-mechanical | > 3 files of mechanical/repetitive edits → `general-purpose` (haiku/sonnet) |
-| Long tool runs | One run you'll read directly | Sweeps producing pages of output → run via Bash with output redirected to a file in the scratchpad, read the summary lines only. (No subagent needed — redirection solves it.) |
+| Reading code | Nearly always — Read/Grep/Glob are cheaper than a cold subagent for anything ≤ ~15 files | The area is genuinely unfamiliar and you can't even guess where to look after 2–3 search rounds → `Explore` |
+| Searching the repo | Nearly always — a few targeted greps | Same bar as above; "I could grep it in 2 tries" is not a delegation case |
+| Web research | Single known URL, or one WebSearch call | Genuinely open-ended research spanning many searches that would flood the main context → `general-purpose` with WebSearch |
+| Editing files | Default — implement the feature/fix yourself, however many files it touches | Only mechanical, repetitive edits with a proven pattern across > 10 files → `general-purpose` (haiku for the batch apply) |
+| Long tool runs | One run you'll read directly, or redirect output to a scratchpad file and read the summary | Essentially never needs a subagent — redirection solves it |
 
 What the commander should *never* do: paste a 300-line tool output into its own analysis
 when 5 lines carry the conclusion; read all of `research/` "for background" (use the index
-`research/README.md`); or spawn a subagent to run a single command.
+`research/README.md`); spawn a subagent to run a single command; spawn one agent per file or
+per step of a feature you could build directly; or spawn a "review"/"second opinion" agent
+for routine work that isn't money-math, a real-money deployment decision, or novel
+statistical methodology (see Validation below — that list is short on purpose).
 
 ## Task delegation contract
 
@@ -113,25 +120,38 @@ met, or where a factual error was found on check):
    for one instance, the correct recipe), hand *batch application* of that pattern back to
    haiku/sonnet with the pattern pasted verbatim into the prompt.
 
-## Validation is never self-validation
+## Validation is never self-validation — but "validation" usually means re-checking
+## yourself, not spawning another agent
 
-The agent (or session) that produced work does not accept its own work. Concretely:
+Verifying work you just did means re-reading it from disk and re-running it, not
+necessarily handing it to a second agent. Concretely:
 
-- **Files/docs written** → a read-back check: a fresh-context agent (or at minimum the
-  commander re-reading from disk, not from its own message history) confirms the file
-  exists, is complete, and contains no references to files/tools that don't exist.
+- **Files/docs written** → re-read the file from disk yourself (not from memory of writing
+  it) and confirm it exists, is complete, and contains no references to files/tools that
+  don't exist. No subagent needed for this — it's one Read call.
 - **Code changes** → `.venv/bin/pytest` + actually executing the changed tool and reading
-  its output. Compile/import success is not acceptance. "The change looks correct" is not
-  acceptance.
-- **High-risk judgments** (anything touching iron rule 3 in CLAUDE.md, statistical verdicts,
-  data-integrity questions) → second opinion: spawn a fresh `general-purpose` (opus) agent
-  with the *question and evidence only* — not your conclusion — and compare answers. If they
-  disagree, that disagreement goes to Derek, not resolved by picking your own answer.
-- **Acceptance prompt for the fresh agent** must include the original acceptance criteria
-  verbatim, and ask it to try to *fail* the work, not to confirm it.
+  its output, yourself. Compile/import success is not acceptance. "The change looks correct"
+  is not acceptance. Still no subagent needed.
+- **Only these two cases** warrant a fresh-context second opinion, because the cost of being
+  wrong is asymmetric enough to justify it: (a) anything already gated by CLAUDE.md iron rule
+  3 (real-money changes needing Derek's yes anyway), and (b) designing genuinely novel
+  statistical methodology (JUDGMENT.md §8) where a wrong-but-plausible design silently
+  corrupts every downstream conclusion. For these two, spawn one fresh `general-purpose`
+  (opus) agent with the *question and evidence only* — not your conclusion. If it disagrees,
+  that goes to Derek, not resolved by picking your own answer.
+- Routine feature work, ordinary bug fixes, doc updates, and research write-ups do **not**
+  get a second-opinion agent — the test gate + execution gate + your own read-back is the
+  acceptance bar. If you want a lightweight second look on a diff, use the `/code-review` or
+  `/simplify` skill inline in the main session; that is not the same as spawning an agent.
+- **Acceptance prompt for the fresh agent**, when one of the two cases above actually
+  applies, must include the original acceptance criteria verbatim, and ask it to try to
+  *fail* the work, not to confirm it.
 
 ## Parallelism
 
-Independent subtasks → issue multiple Agent calls in one message (they run concurrently) or
-`run_in_background: true`. Never parallelize two agents editing the same files; use
-`isolation: "worktree"` if overlap is possible.
+Default is still zero subagents for a normal feature build. When a session does have
+genuinely independent delegated subtasks (per the thresholds above), issue multiple Agent
+calls in one message (they run concurrently) or `run_in_background: true`. Never parallelize
+two agents editing the same files; use `isolation: "worktree"` if overlap is possible. Do
+not spawn a "team" of agents (e.g. one per persona, one per file) for a task one session can
+just think through and build directly — that pattern is exactly what burns the budget.
