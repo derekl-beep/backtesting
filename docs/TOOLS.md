@@ -41,7 +41,8 @@ Tools for strategies that were tested and **rejected** (kept for reproducibility
 build on them without reading the rejection first): `tools.sector_rotation`
 ([research/strategy_experiments.md](../research/strategy_experiments.md)),
 `tools.mean_reversion` (mostly rejected, same file), `tools.regime_probability`
-([research/quant_toolbox.md](../research/quant_toolbox.md)).
+([research/quant_toolbox.md](../research/quant_toolbox.md)), `tools.vol_target` (rejected,
+same file as sector rotation).
 
 ---
 
@@ -307,6 +308,18 @@ different mechanism. [research/strategy_experiments.md](../research/strategy_exp
 ```
 Contrarian RSI-band latch (1x in-trade / 0x cash, no leverage) on the 10 macro/EM ETFs
 rejected under momentum. 8/10 flat-to-negative OOS; TLT/FXI positive but not significant.
+[research/strategy_experiments.md](../research/strategy_experiments.md).
+
+### Volatility-targeted leverage — `tools.vol_target` (rejected 2026-07-09)
+```bash
+.venv/bin/python -m tools.vol_target                      # SPMO, GLD (the live legs)
+.venv/bin/python -m tools.vol_target SPMO
+.venv/bin/python -m tools.vol_target GLD --significance   # + bull-day permutation test
+```
+Replaces the fixed 2x-when-confirmed leverage with continuous vol-scaled leverage
+(`clip(target_vol/realized_vol, floor, cap)`), same MA regime gate otherwise. Walk-forward
+OOS vs a matched-average-leverage baseline shows ~0 Sharpe improvement on both live legs;
+permutation test not significant (CAGR p=0.21-0.26, Sharpe borderline p≈0.07 on both).
 [research/strategy_experiments.md](../research/strategy_experiments.md).
 
 ---
