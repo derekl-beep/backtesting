@@ -59,6 +59,9 @@ anywhere else.
 8. **A verdict on any experiment requires walk-forward OOS + a significance test**, not a
    full-period in-sample table (the in-sample trap has burned this repo twice — see
    `docs/agents/LESSONS.md`).
+9. **Subagents are the exception, not the default.** Build/fix/test directly with your own
+   tools; a task having several steps or touching several files is not a reason to spawn.
+   Delegate only when `docs/agents/ORCHESTRATION.md`'s thresholds are actually met.
 
 ## Style (Derek's confirmed preferences)
 

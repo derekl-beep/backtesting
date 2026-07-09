@@ -1,5 +1,12 @@
 # Delegation Prompt Templates
 
+**Read this before reaching for any template below.** These exist for the delegation cases
+[ORCHESTRATION.md](ORCHESTRATION.md) actually calls for — a large mechanical sweep, search
+in a genuinely unfamiliar area, real independent parallel subtasks. **Most single-feature
+work (build X, fix Y, add a test) needs none of these — just do it directly with your own
+tools.** Reaching for a template by default, or one-per-file/one-per-persona, is the
+token-burning failure mode this system exists to prevent, not a recipe to follow routinely.
+
 Copy the template, fill every `{placeholder}`, delete inapplicable optional lines. Rules
 these encode: [ORCHESTRATION.md](ORCHESTRATION.md) (delegation contract, reporting
 contract, model ladder). Subagents do not reliably absorb CLAUDE.md — that's why each
@@ -8,13 +15,13 @@ when it feels redundant.
 
 Model column = starting model; escalate per ORCHESTRATION ladder.
 
-| Template | subagent_type | model |
-|---|---|---|
-| 1. Search | `Explore` | sonnet (haiku if the question is "where is X defined") |
-| 2. Implementation | `general-purpose` | sonnet (opus if touching money-math) |
-| 3. Refactoring | `general-purpose` | sonnet; haiku for batch application of a proven pattern |
-| 4. Research / backtest experiment | `general-purpose` | opus preferred, sonnet acceptable |
-| 5. Review / acceptance | `general-purpose` | opus for money-math, statistical verdicts, or doc-consistency; sonnet for routine code review |
+| Template | subagent_type | model | Use when |
+|---|---|---|---|
+| 1. Search | `Explore` | sonnet (haiku if the question is "where is X defined") | area is genuinely unfamiliar, >2-3 search rounds expected |
+| 2. Implementation | `general-purpose` | sonnet (opus if touching money-math) | rare — most implementation is done directly, not delegated |
+| 3. Refactoring | `general-purpose` | sonnet; haiku for batch application of a proven pattern | mechanical edits across > 10 files |
+| 4. Research / backtest experiment | `general-purpose` | opus preferred, sonnet acceptable | a full research write-up you want out of the main context |
+| 5. Review / acceptance | `general-purpose` | opus for money-math, statistical verdicts, or a real-money deployment decision | **not** for routine code review — use the `/code-review` skill inline instead |
 
 ---
 
@@ -143,10 +150,16 @@ Full tables go in the research/ file, not the return message.
 
 ## 5. Review / acceptance (`general-purpose`, fresh context — reviewer must not be the author)
 
+**Only use this template for the two cases ORCHESTRATION.md's Validation section names:
+real-money changes already gated by CLAUDE.md iron rule 3, or novel statistical methodology.
+For an ordinary code diff, run the `/code-review` skill inline in the main session instead —
+that gets you a second look without spawning and cold-starting another agent.**
+
 ```text
 OBJECTIVE: Adversarially review {work product: diff | files | research entry}. Your job is
 to FAIL it if you can, not to approve it.
-WHY: acceptance per docs/agents/ORCHESTRATION.md — authors never self-validate.
+WHY: acceptance per docs/agents/ORCHESTRATION.md — authors never self-validate on
+real-money or novel-methodology work.
 
 INPUT: {git diff range | file list}. Original acceptance criteria, verbatim:
 {paste criteria from the original delegation}

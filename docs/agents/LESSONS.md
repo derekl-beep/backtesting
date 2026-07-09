@@ -8,6 +8,22 @@ the failure modes this repo has actually produced.
 
 Seeded 2026-07-07 from documented history (sources: `research/`, `docs/WORKFLOW.md`).
 
+## 2026-07-09 — Agent-orchestration docs over-encouraged subagent spawning
+
+- **What happened:** ORCHESTRATION.md's delegation thresholds (>5 files, >3 files) and
+  TEMPLATES.md's five ready-made templates (incl. a reviewer-must-not-be-author step)
+  caused ordinary single-feature builds to spawn many cold-context subagents, burning the
+  token budget the system was supposed to protect.
+- **Wrong belief:** more delegation and more independent-review agents always improves
+  quality/safety, so low thresholds and a mandatory-feeling reviewer step were safe defaults.
+- **Correction:** default to zero subagents per task; delegate only for large mechanical
+  sweeps (>10 files) or search in genuinely unfamiliar territory; reserve fresh-agent second
+  opinions for real-money changes (iron rule 3) or novel statistical methodology only —
+  everything else uses the test/execution/read-back gates the commander does itself, or the
+  `/code-review` skill inline.
+- **Rule change:** ORCHESTRATION.md thresholds tightened and Validation section narrowed;
+  TEMPLATES.md banner added + Template 5 scoped down; CLAUDE.md iron rule 9 added.
+
 ## 2026-07-06 — RSI inverted on zero-loss windows
 
 - **What happened:** `signals/rsi.py` computed RSI=0 (max oversold) for a 14-day window
