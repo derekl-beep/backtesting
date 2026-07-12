@@ -252,3 +252,117 @@ mean reversion isn't a free alternative hypothesis, it has to earn its own valid
 same way momentum did. TLT and FXI are the two exceptions worth remembering if either shows
 up again in future research (e.g. if bond or China-exposure ETFs get revisited), but neither
 is strong enough evidence on its own to add either to the deployed strategy set today.
+
+## Volatility-targeted continuous leverage (2026-07-09) — rejected
+
+**Hypothesis (scoped in [open_questions.md](open_questions.md) #15):** every strategy in
+this repo uses discrete leverage (0x/1x/2x) gated by the trend signal. Does replacing the
+fixed 2x-when-confirmed with continuous leverage scaled against trailing realized volatility
+— `leverage = clip(target_vol / realized_vol, floor, cap)`, still gated by the same unchanged
+MA-crossover regime (1x hold in bear) — improve risk-adjusted return or reduce drawdown
+versus holding a flat leverage through the whole bull regime? This is mechanically different
+from the rejected `tools.regime_probability` (which tried to predict *direction*): vol-
+targeting doesn't predict anything, it risk-manages an already-confirmed trend.
+
+Built as `strategies/vol_target.py` (`positions()` — `core/simulator.py::run` already treats
+`positions` as continuous target leverage per day, so no simulator change was needed) and
+`tools/vol_target.py` (walk-forward OOS over a window×target_vol×cap grid, same discipline
+as `tools.optimize`, `floor` fixed at 1.0).
+
+**The comparison that matters:** a vol-targeting strategy that simply runs at a lower average
+leverage than a fixed 2x will look "safer" for free — that's not evidence vol-scaling helps,
+it's just less leverage (the same fairness bug class caught in `tools/sector_rotation.py`,
+see `docs/agents/LESSONS.md` 2026-07-06). So every OOS fold is compared against a
+**matched-average-leverage baseline**: `strategies.momentum` run at a *fixed* leverage equal
+to the vol-targeting strategy's own realized average leverage over that same fold — both
+sides carry identical average exposure, only whether *scaling by vol* helps is being tested.
+
+**Significance test:** a circular-shift of the regime signal would re-test "does the trend
+timing predict direction" — already answered by `tools.significance` and unchanged here
+(the regime gate is untouched). The actual new question is whether assigning higher leverage
+to specifically low-vol days beats an arbitrary assignment of the same leverage values across
+the same bull days. The null permutes the realized leverage values among bull-regime days
+only (bear days fixed at 1x) — identical average exposure, identical regime structure, only
+which day gets which value is randomized.
+
+**Walk-forward OOS results, 9 folds (2018-2026), on the two live legs:**
+
+| Ticker | Avg selected leverage | Avg Sharpe (vol-target − matched baseline) | Avg vs B&H CAGR |
+|---|---|---|---|
+| SPMO | ~1.0-1.3x | **-0.07** | -0.3% |
+| GLD  | ~1.0-1.2x | **-0.01** | +1.5% |
+
+The walk-forward optimizer never selects params that push average leverage much past ~1.3x
+on either ticker — both ETFs' realized volatility is high enough relative to the target-vol
+grid that the scaling rule mostly sits near its 1x floor, rarely approaching the 2.0-3.0x cap.
+Sharpe improvement over the matched-average-leverage baseline is a wash on both (essentially
+0, slightly negative on SPMO).
+
+**Significance test (full-period params, 1000 bull-day permutations):**
+- SPMO (win20 tgt15% cap2.5x, avg leverage 1.22x): CAGR p=0.262 (not significant); Sharpe
+  p=0.070 (borderline).
+- GLD (win10 tgt15% cap3.0x, avg leverage 1.19x): CAGR p=0.205 (not significant); Sharpe
+  p=0.069 (borderline).
+
+Neither CAGR result clears p<0.05, and the fact that both tickers land at nearly the same
+borderline Sharpe p-value (~0.07) independently is worth noting but not over-reading — with
+only ~40 ideas tested project-wide (see `research/methodology.md`'s multiple-testing
+addendum), two borderline results are not evidence of a real effect on their own.
+
+**Conclusion: rejected.** Vol-scaled continuous leverage does not improve risk-adjusted
+return over a fixed-leverage baseline carrying the identical average exposure, on either live
+leg, and the day-to-day leverage assignment isn't statistically distinguishable from a random
+assignment of the same values. The mechanism itself worked as designed (confirmed via the
+plausibility checks — MaxDD stayed in the range implied by the actual ~1.0-1.3x average
+leverage used, not the 2x range, since the optimizer never chose to lever up much); it simply
+didn't add value here. Unlike sector rotation and most mean-reversion candidates, this was a
+genuinely different mechanism (risk-management, not direction-prediction) — its rejection is
+a real, informative negative result, not a rehash.
+
+### Follow-up: relaxing the floor below 1x (2026-07-09) — still rejected, and now we know why
+
+**Hypothesis:** the first test capped upside leverage but floored it at 1.0x ("never delever
+below 1x in a confirmed bull regime") — a project rule from `methodology.md`, not a
+constraint from the vol-targeting mechanism itself. Barroso & Santa-Clara's original
+risk-managed-momentum result (Sharpe 0.53→0.97, crashes largely eliminated) comes from
+letting exposure scale *below* normal — even toward flat — specifically during vol spikes.
+Our floor may have structurally ruled out the exact effect being tested for.
+
+**Change:** widened `tools/vol_target.py`'s grid to sweep `floor ∈ {0.0, 0.5, 1.0}` (1.0 kept
+as a control, isolating this one variable), added a crash-year diagnostic (2020, 2022 folds
+specifically — the sharpest test, since a relaxed floor is a no-op in calm years).
+
+**Result: no change from the original finding.**
+
+| Ticker | Avg Sharpe vs matched baseline (unchanged from original test) | Floor selected by walk-forward |
+|---|---|---|
+| SPMO | -0.07 | floor=0.0 chosen in 4/9 folds, floor=1.0 in 5/9 — no consistent preference |
+| GLD  | -0.01 | floor=1.0 chosen in 9/9 folds — the optimizer never wanted a relaxed floor |
+
+**Crash-year detail — the specific test:**
+- SPMO 2020: floor=1.0 was the *training-selected* param (the optimizer didn't even choose
+  to relax it) — VT MaxDD -30.9% vs Base MaxDD -30.9% (identical).
+- SPMO 2022: floor=0.0 was selected, but VT MaxDD -22.7% vs Base MaxDD -22.7% — identical
+  anyway. The relaxed floor was available and picked, and it still made no difference.
+- GLD 2020/2022: floor=1.0 both times; MaxDD improvement +1.4% and +0.0% respectively —
+  negligible.
+
+**Why the mechanism didn't transfer, most likely:** Barroso & Santa-Clara's vol-scaling is
+the *only* crash-response mechanism in their setup (a raw long-short momentum factor with no
+other regime logic). This repo's strategy already has a binary trend gate (MA10/200 for
+SPMO, MA20/100 for GLD) that flips to 1x on its own once a downturn is confirmed. In both
+crash years, the trend signal appears to have already de-risked to 1x by the time the bulk
+of the drawdown hit — leaving no "still-bullish-per-signal but vol already spiking" window
+for a vol overlay to exploit on top of it. The two mechanisms aren't additive here because
+the first one (trend-flip) already captures most of the crash-avoidance the second one
+(vol-scaling) is designed to provide.
+
+**Conclusion: rejected, with an explanation, not just a repeated null.** This isn't the same
+as the sector-rotation/mean-reversion rehashes — the hypothesis was genuinely retested with
+the specific mechanism relaxed, the walk-forward optimizer had the option and mostly declined
+it, and the two crash-year data points (thin — this caveat matters, see
+`methodology.md`'s multiple-testing addendum) both show ~0 realized benefit even where a
+relaxed floor was chosen. The likely reason (redundant with the existing trend-flip) is a
+useful, generalizable takeaway: **a vol-scaling overlay is more likely to help strategies
+that lack their own trend-based de-risking, not ones (like this repo's) that already have
+one.**

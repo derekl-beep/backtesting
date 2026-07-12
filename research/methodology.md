@@ -53,3 +53,14 @@ When reading any new candidate's screener/optimizer output (see
 [etf_candidates.md](etf_candidates.md)), apply this same lens: a big "alpha" number means
 "this ticker's volatility profile can support 2x leverage-timing without breaching -50%
 drawdown," not "this signal has genuine predictive skill."
+
+## Addendum 2026-07-09 — multiple-testing caution
+
+Roughly 40 signal/strategy/ticker ideas have now been tested against a p<0.05 significance
+bar across this log. At that rate, pure chance predicts ~2 false positives even if nothing
+here has real skill. The fact that **zero** have ever cleared p<0.05 is reassuring — it means
+the "everything is leverage-timing" conclusion isn't an artifact of stopping at a lucky
+result. But it cuts the other way too: if a future test ever *does* clear p<0.05, treat it
+with **extra** skepticism (rerun on a fresh ticker/period, re-derive the null by hand) rather
+than as the first real signal — one hit in ~40 attempts is exactly what a false positive
+looks like.

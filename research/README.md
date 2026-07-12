@@ -9,7 +9,8 @@ that reframes how to read every other file's "alpha" numbers.
 
 | File | Contents |
 |------|----------|
-| [methodology.md](methodology.md) | The core finding: reported "alpha" is a leverage-timing effect, not signal quality. Read this first. |
+| [primer.md](primer.md) | New to quant research? Start here — the general step-by-step process for building and validating a trading strategy, with pointers to where this repo implements each step. |
+| [methodology.md](methodology.md) | The core finding: reported "alpha" is a leverage-timing effect, not signal quality. Read this first if you're already familiar with the process. |
 | [etf_candidates.md](etf_candidates.md) | Every ETF screened for the portfolio: accepted, rejected, and why. Includes 2026-07-04's new-ticker research. |
 | [portfolio_construction.md](portfolio_construction.md) | Allocation-level experiments (e.g. dynamic GLD weighting). |
 | [signal_configs.md](signal_configs.md) | MA window selection, multi-signal combos, sensitivity heatmap baseline. |
