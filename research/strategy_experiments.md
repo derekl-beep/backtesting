@@ -318,3 +318,51 @@ leverage used, not the 2x range, since the optimizer never chose to lever up muc
 didn't add value here. Unlike sector rotation and most mean-reversion candidates, this was a
 genuinely different mechanism (risk-management, not direction-prediction) — its rejection is
 a real, informative negative result, not a rehash.
+
+### Follow-up: relaxing the floor below 1x (2026-07-09) — still rejected, and now we know why
+
+**Hypothesis:** the first test capped upside leverage but floored it at 1.0x ("never delever
+below 1x in a confirmed bull regime") — a project rule from `methodology.md`, not a
+constraint from the vol-targeting mechanism itself. Barroso & Santa-Clara's original
+risk-managed-momentum result (Sharpe 0.53→0.97, crashes largely eliminated) comes from
+letting exposure scale *below* normal — even toward flat — specifically during vol spikes.
+Our floor may have structurally ruled out the exact effect being tested for.
+
+**Change:** widened `tools/vol_target.py`'s grid to sweep `floor ∈ {0.0, 0.5, 1.0}` (1.0 kept
+as a control, isolating this one variable), added a crash-year diagnostic (2020, 2022 folds
+specifically — the sharpest test, since a relaxed floor is a no-op in calm years).
+
+**Result: no change from the original finding.**
+
+| Ticker | Avg Sharpe vs matched baseline (unchanged from original test) | Floor selected by walk-forward |
+|---|---|---|
+| SPMO | -0.07 | floor=0.0 chosen in 4/9 folds, floor=1.0 in 5/9 — no consistent preference |
+| GLD  | -0.01 | floor=1.0 chosen in 9/9 folds — the optimizer never wanted a relaxed floor |
+
+**Crash-year detail — the specific test:**
+- SPMO 2020: floor=1.0 was the *training-selected* param (the optimizer didn't even choose
+  to relax it) — VT MaxDD -30.9% vs Base MaxDD -30.9% (identical).
+- SPMO 2022: floor=0.0 was selected, but VT MaxDD -22.7% vs Base MaxDD -22.7% — identical
+  anyway. The relaxed floor was available and picked, and it still made no difference.
+- GLD 2020/2022: floor=1.0 both times; MaxDD improvement +1.4% and +0.0% respectively —
+  negligible.
+
+**Why the mechanism didn't transfer, most likely:** Barroso & Santa-Clara's vol-scaling is
+the *only* crash-response mechanism in their setup (a raw long-short momentum factor with no
+other regime logic). This repo's strategy already has a binary trend gate (MA10/200 for
+SPMO, MA20/100 for GLD) that flips to 1x on its own once a downturn is confirmed. In both
+crash years, the trend signal appears to have already de-risked to 1x by the time the bulk
+of the drawdown hit — leaving no "still-bullish-per-signal but vol already spiking" window
+for a vol overlay to exploit on top of it. The two mechanisms aren't additive here because
+the first one (trend-flip) already captures most of the crash-avoidance the second one
+(vol-scaling) is designed to provide.
+
+**Conclusion: rejected, with an explanation, not just a repeated null.** This isn't the same
+as the sector-rotation/mean-reversion rehashes — the hypothesis was genuinely retested with
+the specific mechanism relaxed, the walk-forward optimizer had the option and mostly declined
+it, and the two crash-year data points (thin — this caveat matters, see
+`methodology.md`'s multiple-testing addendum) both show ~0 realized benefit even where a
+relaxed floor was chosen. The likely reason (redundant with the existing trend-flip) is a
+useful, generalizable takeaway: **a vol-scaling overlay is more likely to help strategies
+that lack their own trend-based de-risking, not ones (like this repo's) that already have
+one.**

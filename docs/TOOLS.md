@@ -317,9 +317,14 @@ rejected under momentum. 8/10 flat-to-negative OOS; TLT/FXI positive but not sig
 .venv/bin/python -m tools.vol_target GLD --significance   # + bull-day permutation test
 ```
 Replaces the fixed 2x-when-confirmed leverage with continuous vol-scaled leverage
-(`clip(target_vol/realized_vol, floor, cap)`), same MA regime gate otherwise. Walk-forward
-OOS vs a matched-average-leverage baseline shows ~0 Sharpe improvement on both live legs;
-permutation test not significant (CAGR p=0.21-0.26, Sharpe borderline p≈0.07 on both).
+(`clip(target_vol/realized_vol, floor, cap)`), same MA regime gate otherwise. `floor` is
+swept ({0.0, 0.5, 1.0}) to test letting leverage scale below 1x (even to cash) during vol
+spikes, not just cap the upside. Walk-forward OOS vs a matched-average-leverage baseline
+shows ~0 Sharpe improvement on both live legs either way; permutation test not significant
+(CAGR p=0.21-0.30, Sharpe borderline p≈0.07-0.09). The relaxed floor rarely even gets
+selected by the optimizer, and shows ~0 crash-year MaxDD improvement (2020, 2022) on the
+rare fold where it is — likely because the existing trend signal already de-risks to 1x by
+the time a crash hits, leaving no window for the overlay to add value.
 [research/strategy_experiments.md](../research/strategy_experiments.md).
 
 ---

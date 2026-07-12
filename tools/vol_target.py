@@ -16,9 +16,20 @@ research/open_questions.md #15 for the full scope and rationale, and
 research/methodology.md before interpreting any "alpha" here.
 
 Walk-forward OOS param selection follows the same discipline as
-tools.optimize: for each test year, pick the (window, target_vol, cap) combo
-with the best training Sharpe subject to the -50% MaxDD / 0 margin-call
+tools.optimize: for each test year, pick the (window, target_vol, floor, cap)
+combo with the best training Sharpe subject to the -50% MaxDD / 0 margin-call
 constraints, then evaluate OOS on that year.
+
+FLOOR_GRID includes 1.0 (the original "never delever below 1x in a confirmed
+bull regime" rule from research/methodology.md) alongside lower floors
+(0.5, 0.0) that let leverage scale *below* 1x -- even to cash -- during a
+vol spike, without waiting for the trend signal itself to flip bearish.
+This is the mechanism Barroso & Santa-Clara credit for momentum's
+crash-risk reduction (see research/strategy_experiments.md's 2026-07-09
+entry): the first vol-targeting test only capped upside and floored at 1x,
+which structurally ruled out exactly this effect. Keeping floor=1.0 in the
+grid as a control isolates whether relaxing it specifically helps, rather
+than changing several things at once.
 
 Two comparisons matter, and they ask different questions:
   1. vs Buy & Hold        -- informational, same as every other tool here.
@@ -66,16 +77,22 @@ FIRST_TEST_YEAR = 2018
 WINDOW_GRID = [10, 20, 63]
 TARGET_VOL_GRID = [0.15, 0.20, 0.25, 0.30]
 CAP_GRID = [2.0, 2.5, 3.0]
-FLOOR = 1.0   # never delever below 1x in a confirmed-bull regime
+FLOOR_GRID = [0.0, 0.5, 1.0]   # 1.0 = original "never below 1x" rule; 0.0/0.5 test crash de-risking
+
+# Folds where realized vol actually spiked hard -- the sharpest test of whether
+# a relaxed floor's crash de-risking shows up, since it's a no-op in calm years.
+CRASH_YEARS = {2020, 2022}
 
 
 def _grid():
-    return [{"window": w, "target_vol": tv, "cap": c, "floor": FLOOR}
-            for w in WINDOW_GRID for tv in TARGET_VOL_GRID for c in CAP_GRID]
+    return [{"window": w, "target_vol": tv, "cap": c, "floor": f}
+            for w in WINDOW_GRID for tv in TARGET_VOL_GRID
+            for c in CAP_GRID for f in FLOOR_GRID]
 
 
 def _param_label(params):
-    return f"win{params['window']} tgt{params['target_vol']:.0%} cap{params['cap']:.1f}x"
+    return (f"win{params['window']} tgt{params['target_vol']:.0%} "
+            f"floor{params['floor']:.1f}x cap{params['cap']:.1f}x")
 
 
 def _run_params(prices, ma_params, vt_params):
@@ -184,10 +201,11 @@ def analyze(ticker):
         print("  Not enough data for a walk-forward fit.")
         return None
 
-    print(f"\n  {'Fold':<6} {'Params':<20} {'AvgLev':>7} {'VT Sharpe':>10} "
+    print(f"\n  {'Fold':<6} {'Params':<28} {'AvgLev':>7} {'VT Sharpe':>10} "
           f"{'Base Sharpe':>12} {'VT MaxDD':>9} {'Base MaxDD':>11} {'vs B&H':>8}")
-    print(f"  {'-'*88}")
+    print(f"  {'-'*96}")
     sharpe_deltas, vs_bah = [], []
+    crash_fold_records = []
     for f in fold_records:
         if f.get("skipped"):
             print(f"  {f['test_year']:<6} SKIPPED — {f['reason']}")
@@ -195,7 +213,9 @@ def analyze(ticker):
         delta = f["vt_sharpe"] - f["base_sharpe"]
         sharpe_deltas.append(delta)
         vs_bah.append(f["vt_cagr"] - f["bah_cagr"])
-        print(f"  {f['test_year']:<6} {_param_label(f['params']):<20} "
+        if f["test_year"] in CRASH_YEARS:
+            crash_fold_records.append(f)
+        print(f"  {f['test_year']:<6} {_param_label(f['params']):<28} "
               f"{f['avg_leverage']:>6.2f}x {f['vt_sharpe']:>10.2f} {f['base_sharpe']:>12.2f} "
               f"{f['vt_max_dd']:>9.1%} {f['base_max_dd']:>11.1%} {vs_bah[-1]:>+7.1%}")
 
@@ -204,6 +224,15 @@ def analyze(ticker):
               f"{sum(sharpe_deltas)/len(sharpe_deltas):+.2f}")
         print(f"  Avg vs Buy & Hold CAGR: {sum(vs_bah)/len(vs_bah):+.1%}")
         print(f"  OOS folds: {len(sharpe_deltas)}/{len(fold_records)}")
+
+    if crash_fold_records:
+        print(f"\n  Crash-year detail ({', '.join(str(f['test_year']) for f in crash_fold_records)}"
+              f") — the specific test of whether a relaxed floor de-risks during vol spikes:")
+        for f in crash_fold_records:
+            dd_improvement = f["base_max_dd"] - f["vt_max_dd"]
+            print(f"    {f['test_year']}: {_param_label(f['params'])}  "
+                  f"AvgLev {f['avg_leverage']:.2f}x  VT MaxDD {f['vt_max_dd']:.1%}  "
+                  f"vs Base MaxDD {f['base_max_dd']:.1%}  (shallower by {dd_improvement:+.1%})")
 
     print(f"\n  Param consistency (appearances across folds):")
     for key, count in sorted(appearances.items(), key=lambda x: -x[1]):

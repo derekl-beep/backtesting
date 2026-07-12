@@ -133,7 +133,8 @@ def test_walk_forward_runs_end_to_end_on_synthetic_data(monkeypatch):
         assert f["params"]["window"] in vt.WINDOW_GRID
         assert f["params"]["target_vol"] in vt.TARGET_VOL_GRID
         assert f["params"]["cap"] in vt.CAP_GRID
-        assert 1.0 <= f["avg_leverage"] <= max(vt.CAP_GRID)
+        assert f["params"]["floor"] in vt.FLOOR_GRID
+        assert min(vt.FLOOR_GRID) <= f["avg_leverage"] <= max(vt.CAP_GRID)
 
 
 def test_significance_test_bounds_and_shape(monkeypatch):
@@ -150,4 +151,4 @@ def test_significance_test_bounds_and_shape(monkeypatch):
     assert 0.0 <= result["p_cagr"] <= 1.0
     assert 0.0 <= result["p_sharpe"] <= 1.0
     assert len(result["random_cagrs"]) == 25
-    assert 1.0 <= result["avg_leverage"] <= max(vt.CAP_GRID)
+    assert min(vt.FLOOR_GRID) <= result["avg_leverage"] <= max(vt.CAP_GRID)
