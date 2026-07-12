@@ -26,6 +26,7 @@ anywhere else.
 | Need | Read |
 |---|---|
 | Run any tool / command flags / architecture | `docs/TOOLS.md` |
+| New to quant research — how to build/validate a strategy | `research/primer.md` |
 | Before testing ANY strategy or ticker idea | `research/README.md` (it may already be tested); `research/methodology.md` first |
 | Open research questions | `research/open_questions.md` |
 | How to delegate to subagents, model choice, validation | `docs/agents/ORCHESTRATION.md` |
